@@ -109,14 +109,14 @@ def main() -> None:
             data=_template_bytes(False),
             file_name="hsm_template.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
+            width="stretch",
         )
         st.download_button(
             "Scarica l'esempio compilato",
             data=_template_bytes(True),
             file_name="hsm_esempio.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
+            width="stretch",
         )
 
     try:
@@ -224,7 +224,7 @@ def main() -> None:
     with tabs[0]:
         st.plotly_chart(
             space_time_figure(case, results, analyses, time_down, show_virtual_head=show_virtual),
-            use_container_width=True,
+            width="stretch",
             config=PLOT_CONFIG,
         )
         st.caption(
@@ -236,7 +236,7 @@ def main() -> None:
 
     with tabs[1]:
         st.plotly_chart(
-            gap_figure(analyses, gap_min), use_container_width=True, config=PLOT_CONFIG
+            gap_figure(analyses, gap_min), width="stretch", config=PLOT_CONFIG
         )
         if analyses:
             st.dataframe(
@@ -252,14 +252,14 @@ def main() -> None:
                     }
                     for a in analyses
                 ],
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
     with tabs[2]:
         st.plotly_chart(
             pacing_curve_figure(curve, gap_min, pacing, min_pacing),
-            use_container_width=True,
+            width="stretch",
             config=PLOT_CONFIG,
         )
         st.caption(
@@ -268,7 +268,7 @@ def main() -> None:
         )
         if mc is not None:
             st.plotly_chart(
-                monte_carlo_figure(mc, gap_min), use_container_width=True, config=PLOT_CONFIG
+                monte_carlo_figure(mc, gap_min), width="stretch", config=PLOT_CONFIG
             )
             st.write(
                 f"Su {mc.runs} run con velocita' entro "
@@ -282,7 +282,7 @@ def main() -> None:
 
     with tabs[3]:
         st.plotly_chart(
-            gantt_figure(case, results), use_container_width=True, config=PLOT_CONFIG
+            gantt_figure(case, results), width="stretch", config=PLOT_CONFIG
         )
 
     with tabs[4]:
@@ -300,7 +300,7 @@ def main() -> None:
                 }
                 for e in chosen.events
             ],
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             height=460,
         )
@@ -324,7 +324,7 @@ def main() -> None:
                 }
                 for c in mass_balance(results)
             ],
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
         st.caption(
@@ -346,7 +346,7 @@ def main() -> None:
                     }
                     for d in deviations
                 ],
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
             st.caption(
@@ -389,7 +389,7 @@ def main() -> None:
                 shifted = [s.shift(offset) for s in series]
                 st.plotly_chart(
                     space_time_figure(case, results, analyses, time_down, tracking=shifted),
-                    use_container_width=True,
+                    width="stretch",
                     config=PLOT_CONFIG,
                 )
         else:

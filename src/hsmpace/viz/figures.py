@@ -134,6 +134,24 @@ def space_time_figure(
 
     t_min = min((r.t_start for r in results), default=0.0)
     t_max = max((r.t_end for r in results), default=1.0)
+
+    # le gabbie finitrici distano pochi metri l'una dall'altra: le etichette
+    # vengono distribuite su piu' livelli per non sovrapporsi
+    x_span = max(case.line.x_max - case.line.x_min, 1.0)
+    min_spacing = 0.025 * x_span
+    tier_last: list[float] = []
+    tiers: dict[str, int] = {}
+    for eq in sorted(case.line.equipment, key=lambda e: e.x):
+        level = next(
+            (i for i, last in enumerate(tier_last) if eq.x - last >= min_spacing),
+            len(tier_last),
+        )
+        if level == len(tier_last):
+            tier_last.append(eq.x)
+        else:
+            tier_last[level] = eq.x
+        tiers[eq.id] = level
+
     for eq in case.line.equipment:
         is_stand = eq.kind in (KIND_STAND, KIND_COILER)
         fig.add_shape(
@@ -152,7 +170,7 @@ def space_time_figure(
         # etichette ruotate sopra l'area del grafico, per non coprire le bande
         fig.add_annotation(
             x=eq.x,
-            y=1.004,
+            y=1.004 + 0.055 * tiers[eq.id],
             yref="paper",
             text=eq.display,
             textangle=-90,
