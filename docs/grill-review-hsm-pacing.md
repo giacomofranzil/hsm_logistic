@@ -594,9 +594,14 @@ numero.
 
 Con il layout di esempio (R1 e R2 reversibili, tre passate ciascuna, finitore a sette gabbie, coil da
 757 m) e gap minimo di 5 m, il **pacing minimo ammissibile risulta 105 s**, e il punto critico cade
-**all'uscita forno**: la testa del pezzo che viene estratto incontra la coda del precedente mentre
-questo sta eseguendo una passata inversa. E' esattamente il rischio segnalato al punto 3 del capitolo
-2, e conferma che limitare l'analisi alle sole coppie adiacenti sarebbe stato riduttivo.
+**a monte di R1, a pochi metri dall'uscita forno**. Il meccanismo e' quello previsto al punto 3 del
+capitolo 2: la passata inversa su R2 riporta la coda del bar fin quasi al forno, e quando il bar
+riparte in avanti per l'ultima passata lo fa da fermo, quindi lentamente, proprio mentre la bramma
+successiva viene estratta. Il vincolo non e' nel laminatoio ma nel punto in cui il pezzo entra.
+
+Vale la pena notare cosa questo implica: **il pacing e' limitato da un'interferenza che nessuna
+intuizione colloca dove effettivamente sta**. Chi guarda l'impianto pensa alla cesoia o all'ingresso
+finitore, non a due metri dal forno.
 
 ### 15.4 Cosa manca ancora, in ordine di utilita'
 

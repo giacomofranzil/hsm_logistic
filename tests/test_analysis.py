@@ -118,6 +118,37 @@ def test_monte_carlo_riproducibile_e_conservativo(case, base):
     assert largo.violation_rate <= uno.violation_rate
 
 
+def test_il_punto_critico_e_a_monte_dello_sbozzatore(case, base):
+    """Il gap si chiude dove lo sbozzatore reversibile riporta il bar verso il forno.
+
+    Al pacing minimo del caso di esempio il punto critico cade a monte di R1,
+    posizione che la coda del pezzo davanti puo' occupare solo per effetto delle
+    passate inverse: senza inversioni il bar non tornerebbe mai cosi' indietro e
+    il pezzo che segue avrebbe la linea libera.
+    """
+    best = min_feasible_pacing(case, base)
+    assert best is not None
+
+    results = sequence(case, base, best.pacing - 2.0)
+    analyses = analyse_sequence(results, case.settings.gap_min, case.line)
+    worst = min(analyses, key=lambda a: a.min_gap)
+    assert worst.min_gap < case.settings.gap_min
+
+    x_r1 = case.line.get("R1").x
+    assert worst.critical.x < x_r1
+
+    davanti = next(r for r in results if r.piece_id == worst.front_id)
+    assert any(s.v0 < 0 for s in davanti.tail.segments), "il bar deve risalire la linea"
+    assert min(s.x1 for s in davanti.tail.segments) < x_r1
+
+
+def test_la_testa_fisica_non_supera_mai_l_avvolgitore(case, base):
+    for res in sequence(case, base, case.settings.pacing):
+        assert res.x_coiler is not None
+        assert max(s.x1 for s in res.head.segments) <= res.x_coiler + 1e-6
+        assert res.head_virtual.x_at(res.t_end) > res.x_coiler
+
+
 def test_bilancio_di_massa_sul_caso_di_esempio(case, base):
     results = sequence(case, base, case.settings.pacing)
     checks = mass_balance(results)
