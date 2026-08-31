@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hsmpace"
+version = "0.1.0"
+description = "Diagramma spazio-tempo e analisi del pacing per Hot Strip Mill"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "openpyxl>=3.1",
+    "plotly>=5.20",
+    "streamlit>=1.33",
+]
+
+[project.optional-dependencies]
+png = ["kaleido>=0.2.1"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+hsmpace = "hsmpace.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
