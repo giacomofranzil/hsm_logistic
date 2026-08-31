@@ -195,8 +195,12 @@ def simulate_piece(
 
         if next_idx < len(passes):
             nxt = passes[next_idx]
-            if nxt.direction == direction and not reversing:
-                x_stand = line.get(nxt.equipment_id).x
+            x_stand = line.get(nxt.equipment_id).x
+            # la gabbia deve essere ancora davanti: senza questa guardia, appena
+            # dopo un bite l'estremita' guida si trova esattamente sulla gabbia e
+            # una seconda passata sullo stesso stand morderebbe nello stesso istante
+            ahead = direction * (x_stand - lead_x) > 1e-6
+            if nxt.direction == direction and not reversing and ahead:
                 t_hit = solve_crossing(
                     t, lead_x, lead_v, lead_a, x_stand, t, horizon, direction
                 )
@@ -231,9 +235,18 @@ def simulate_piece(
                 candidates.append((t_hit, "finish", None))
 
         if not candidates:
+            if next_idx < len(passes):
+                nxt = passes[next_idx]
+                verso = "fwd" if nxt.direction == FWD else "rev"
+                raise ModelError(
+                    f"{piece_id}: la passata {nxt.pass_no} su {nxt.equipment_id} non e' "
+                    f"raggiungibile in verso {verso}. A t={t:.1f} s il pezzo occupa "
+                    f"[{x_tail:.1f}, {x_head:.1f}] m e la gabbia sta a "
+                    f"{line.get(nxt.equipment_id).x:.1f} m."
+                )
             raise ModelError(
-                f"{piece_id}: il pezzo si e' fermato a x={x_head:.1f} m senza eventi successivi. "
-                "Manca un comando di velocita' oppure una passata non e' raggiungibile."
+                f"{piece_id}: il pezzo si e' fermato a x={x_head:.1f} m senza eventi "
+                "successivi. Manca un comando di velocita' in coda al percorso."
             )
 
         t_next, action, payload = min(candidates, key=lambda c: (c[0], c[1]))

@@ -13,20 +13,20 @@ from pathlib import Path
 
 import streamlit as st
 
-from hsmpace.core.analysis import analyse_sequence, mass_balance
-from hsmpace.core.model import Case, harmonise_tandem_speeds
-from hsmpace.core.simulate import PieceResult
-from hsmpace.core.studies import (
+from ..core.analysis import analyse_sequence, mass_balance
+from ..core.model import Case, harmonise_tandem_speeds
+from ..core.simulate import PieceResult
+from ..core.studies import (
     base_results,
     gap_vs_pacing,
     min_feasible_pacing,
     monte_carlo,
     sequence,
 )
-from hsmpace.core.tracking import parse_tracking
-from hsmpace.example import example_case
-from hsmpace.io_excel import ValidationError, read_case, write_case, write_results
-from hsmpace.viz import (
+from ..core.tracking import parse_tracking
+from ..example import example_case
+from ..io_excel import ValidationError, read_case, write_case, write_results
+from ..viz import (
     gantt_figure,
     gap_figure,
     monte_carlo_figure,

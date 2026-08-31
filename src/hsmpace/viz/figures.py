@@ -37,14 +37,14 @@ def _rgba(hex_color: str, alpha: float) -> str:
     return f"rgba({r},{g},{b},{alpha})"
 
 
-def _layout(fig: go.Figure, title: str, height: int = 640) -> go.Figure:
+def _layout(fig: go.Figure, title: str, height: int = 640, top: int = 70) -> go.Figure:
     fig.update_layout(
-        title=title,
+        title=dict(text=title, y=0.98, yanchor="top"),
         template="plotly_white",
         height=height,
-        margin=dict(l=70, r=30, t=70, b=60),
+        margin=dict(l=70, r=30, t=top, b=90),
         hovermode="closest",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        legend=dict(orientation="h", yanchor="top", y=-0.12, xanchor="left", x=0),
     )
     fig.update_xaxes(gridcolor=_GRID, zeroline=False)
     fig.update_yaxes(gridcolor=_GRID, zeroline=False)
@@ -149,16 +149,17 @@ def space_time_figure(
             ),
             layer="below",
         )
+        # etichette ruotate sopra l'area del grafico, per non coprire le bande
         fig.add_annotation(
             x=eq.x,
-            y=1.0,
+            y=1.004,
             yref="paper",
             text=eq.display,
             textangle=-90,
             showarrow=False,
-            xanchor="left",
-            yanchor="top",
-            font=dict(size=9, color="#333" if is_stand else "#888"),
+            xanchor="center",
+            yanchor="bottom",
+            font=dict(size=9, color="#333" if is_stand else "#8a8a8a"),
         )
 
     if analyses:
@@ -178,8 +179,13 @@ def space_time_figure(
                 )
             )
 
-    _layout(fig, "Diagramma spazio-tempo")
-    fig.update_xaxes(title="Posizione lungo la linea [m]")
+    _layout(fig, "Diagramma spazio-tempo", top=170)
+    x_lo = min([case.line.x_min] + [min(s.x0 for s in r.tail.segments) for r in results])
+    x_hi = max([case.line.x_max] + [max(s.x1 for s in r.head.segments) for r in results])
+    span = max(x_hi - x_lo, 1.0)
+    fig.update_xaxes(
+        title="Posizione lungo la linea [m]", range=[x_lo - 0.03 * span, x_hi + 0.03 * span]
+    )
     fig.update_yaxes(title="Tempo [s]", autorange="reversed" if time_down else True)
     return fig
 
