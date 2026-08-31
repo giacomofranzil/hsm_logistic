@@ -559,3 +559,52 @@ Vedi domanda R1 in fondo.
 - **R3 - Verso dell'asse tempo.** Con la posizione su X, il tempo cresce verso l'alto o verso il basso?
   Metto comunque un interruttore nella UI, serve solo il default.
 
+**Risposte**: R1 estremita' che guida nel verso corrente, con colonna di override; R2 unita' come
+proposte (m, mm, m/s, s, m/s2); R3 tempo crescente verso il basso.
+
+---
+
+## 15. Esito dell'implementazione
+
+### 15.1 Dove sono finite le decisioni
+
+| Decisione | Dove vive |
+|---|---|
+| Segmenti analitici, radici quadratiche, differenza fra traiettorie | `src/hsmpace/core/kinematics.py` |
+| Catena di bilancio di massa, discontinuita' a bite e tail-out, inversioni, zoom su testa virtuale | `src/hsmpace/core/simulate.py` |
+| Layout, sezioni, eventi, validazione con localizzatore | `src/hsmpace/core/model.py` |
+| Gap con estremi geometrici, gap temporale, bilancio di massa | `src/hsmpace/core/analysis.py` |
+| Curva gap-vs-pacing, pacing minimo, Monte Carlo | `src/hsmpace/core/studies.py` |
+| Lettura Excel con errori riferiti alla cella | `src/hsmpace/io_excel/reader.py` |
+| Contratto JSON per il futuro Livello 2 | `src/hsmpace/core/contract.py` e `docs/algorithm-spec.md` |
+
+### 15.2 Il bug che il grilling aveva mancato
+
+La suite di test ne ha tirato fuori uno che nessuna delle domande aveva anticipato: **due passate
+consecutive sulla stessa gabbia nello stesso verso mordevano nel medesimo istante**. Subito dopo un
+bite l'estremita' che guida si trova esattamente sulla gabbia, quindi la condizione di attraversamento
+della passata successiva risultava soddisfatta con distanza nulla. Il simulatore produceva un moto
+plausibile ma privo di senso invece di fermarsi. Risolto con una guardia geometrica (la gabbia deve
+essere ancora davanti) e una diagnostica che nomina la passata non raggiungibile.
+
+E' il tipo di errore piu' insidioso in uno strumento come questo: non genera un'eccezione, genera un
+numero.
+
+### 15.3 Cosa dice il tool sull'impianto di esempio
+
+Con il layout di esempio (R1 e R2 reversibili, tre passate ciascuna, finitore a sette gabbie, coil da
+757 m) e gap minimo di 5 m, il **pacing minimo ammissibile risulta 105 s**, e il punto critico cade
+**all'uscita forno**: la testa del pezzo che viene estratto incontra la coda del precedente mentre
+questo sta eseguendo una passata inversa. E' esattamente il rischio segnalato al punto 3 del capitolo
+2, e conferma che limitare l'analisi alle sole coppie adiacenti sarebbe stato riduttivo.
+
+### 15.4 Cosa manca ancora, in ordine di utilita'
+
+1. **Validazione su tracking reale**: il formato CSV e il confronto nella UI ci sono, mancano i dati.
+   Finche' non si sovrappone il simulato al misurato, il pacing minimo resta un numero da modello.
+2. **Coilbox** (fase 2): pezzo puntiforme e scambio testa/coda.
+3. **Sequenze multiprodotto reali**: il codice le gestisce, ma il workbook di esempio ha un solo
+   prodotto. Su un programma di laminazione vero il pacing non e' costante lungo la sequenza.
+4. **Interblocchi e hold point**, se un giorno servira' il ritardo indotto invece della sola diagnosi.
+5. **Impacchettamento in eseguibile** una volta chiarito cosa consente l'IT.
+

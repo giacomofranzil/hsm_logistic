@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .kinematics import EPS_T, Segment, Trajectory, solve_crossing
-from .model import FWD, REV, Case, ModelError, Product, RollingPass, SpeedEvent
+from .model import FWD, Case, ModelError, Product, RollingPass, SpeedEvent
 
 _MAX_ITER = 200_000
 _HORIZON = 2_000.0
