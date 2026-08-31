@@ -18,6 +18,9 @@ con cui i pezzi possono entrare nel processo.
   adiacenti: con lo sbozzatore reversibile il vincolo cade spesso fra il pezzo N e N+2.
 * **Curva del gap minimo in funzione del pacing**, da cui si legge direttamente la cadenza minima
   ammissibile e il margine con cui si sta lavorando.
+
+  ![curva del pacing](docs/img/pacing.png)
+
 * **Robustezza Monte Carlo**: probabilita' di violazione quando velocita' di passata, tempi morti e
   istanti di rilascio hanno la dispersione che hanno in impianto.
 * **Occupazione delle gabbie** a diagramma di Gantt e registro completo degli eventi.

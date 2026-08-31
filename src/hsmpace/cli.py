@@ -33,8 +33,8 @@ def _load(path: str | None) -> "object":
 
 def _cmd_template(args: argparse.Namespace) -> int:
     path = write_case(example_case(), args.output, include_data=args.with_example)
-    kind = "esempio compilato" if args.with_example else "template vuoto"
-    print(f"Scritto il {kind}: {path}")
+    kind = "l'esempio compilato" if args.with_example else "il template vuoto"
+    print(f"Scritto {kind}: {path}")
     return 0
 
 
