@@ -1,4 +1,4 @@
-"""Scrittura di un Case su workbook Excel: template vuoto o caso di esempio."""
+"""Writing a Case to an Excel workbook: empty template or example case."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def _section_columns() -> list[tuple[str, str]]:
 
 
 def _bool(value: bool) -> str:
-    return "SI" if value else "NO"
+    return "YES" if value else "NO"
 
 
 def _direction(value: int) -> str:
@@ -48,7 +48,7 @@ def _direction(value: int) -> str:
 
 
 def _section_start_ref(case: Case, section: Section) -> tuple[str, float]:
-    """Riferimento leggibile per l'inizio sezione: l'apparecchiatura piu' vicina a monte."""
+    """Readable reference for the section start: the closest equipment upstream."""
     upstream = [e for e in case.line.equipment if e.x <= section.x_start + 1e-9]
     if not upstream:
         return "", section.x_start
@@ -57,7 +57,7 @@ def _section_start_ref(case: Case, section: Section) -> tuple[str, float]:
 
 
 def write_case(case: Case, path: str | Path, include_data: bool = True) -> Path:
-    """Scrive il workbook. Con ``include_data`` falso produce il template vuoto."""
+    """Write the workbook. With ``include_data`` false it produces the empty template."""
     path = Path(path)
     wb = Workbook()
 
@@ -73,7 +73,7 @@ def write_case(case: Case, path: str | Path, include_data: bool = True) -> Path:
             ws.row_dimensions[row].height = 15 * (len(text) // 90 + 1)
 
     ws = wb.create_sheet(S.SHEET_INFO)
-    _write_header(ws, [("key", "Chiave"), ("value", "Valore")])
+    _write_header(ws, [("key", "Key"), ("value", "Value")])
     info = {"schema_version": S.SCHEMA_VERSION, "mill_name": "", "notes": ""}
     if include_data:
         info.update(case.info)
@@ -152,7 +152,7 @@ def write_case(case: Case, path: str | Path, include_data: bool = True) -> Path:
                 row += 1
 
     ws = wb.create_sheet(S.SHEET_SIM)
-    _write_header(ws, [("key", "Chiave"), ("value", "Valore"), ("note", "Descrizione")])
+    _write_header(ws, [("key", "Key"), ("value", "Value"), ("note", "Description")])
     ws.column_dimensions["C"].width = 70
     s = case.settings
     values = {

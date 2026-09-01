@@ -1,8 +1,8 @@
-"""Scrittura dei risultati su un workbook separato.
+"""Writing the results to a separate workbook.
 
-Il file di input resta sempre in sola lettura: i risultati non vengono mai
-scritti dentro il file che l'utente compila, per non ritrovarsi in giro
-workbook con input nuovi e risultati vecchi.
+The input file always stays read only: results are never written inside the
+file the user fills in, to avoid workbooks floating around with new inputs and
+stale results.
 """
 
 from __future__ import annotations
@@ -51,44 +51,44 @@ def write_results(
     wb.remove(wb.active)
 
     summary: list[list] = [
-        ["Impianto", case.info.get("mill_name", "")],
-        ["Pacing nominale [s]", case.settings.pacing],
-        ["Gap minimo richiesto [m]", case.settings.gap_min],
-        ["Pezzi simulati", len(results)],
-        ["Sequenza prodotti", ", ".join(case.piece_products)],
+        ["Mill", case.info.get("mill_name", "")],
+        ["Nominal pacing [s]", case.settings.pacing],
+        ["Minimum gap required [m]", case.settings.gap_min],
+        ["Pieces simulated", len(results)],
+        ["Product sequence", ", ".join(case.piece_products)],
     ]
     if analyses:
         worst = min(analyses, key=lambda a: a.min_gap)
         summary += [
-            ["Gap minimo della sequenza [m]", round(worst.min_gap, 2)],
-            ["Coppia critica", f"{worst.front_id} / {worst.rear_id}"],
-            ["Posizione critica [m]", round(worst.critical.x, 1) if worst.critical else ""],
-            ["Istante critico [s]", round(worst.critical.t, 1) if worst.critical else ""],
-            ["Sezione critica", worst.critical.section if worst.critical else ""],
-            ["Gap temporale al punto critico [s]", round(worst.headway, 1) if worst.headway else ""],
-            ["Esito", "ammissibile" if worst.ok else "VIOLAZIONE"],
+            ["Minimum gap of the sequence [m]", round(worst.min_gap, 2)],
+            ["Critical pair", f"{worst.front_id} / {worst.rear_id}"],
+            ["Critical position [m]", round(worst.critical.x, 1) if worst.critical else ""],
+            ["Critical instant [s]", round(worst.critical.t, 1) if worst.critical else ""],
+            ["Critical section", worst.critical.section if worst.critical else ""],
+            ["Time gap at the critical point [s]", round(worst.headway, 1) if worst.headway else ""],
+            ["Outcome", "feasible" if worst.ok else "VIOLATION"],
         ]
     else:
-        summary.append(["Esito", "i pezzi non interagiscono mai"])
+        summary.append(["Outcome", "the pieces never interact"])
     if min_pacing is not None:
         summary += [
-            ["Pacing minimo ammissibile [s]", round(min_pacing.pacing, 1)],
-            ["Vincolo attivo al pacing minimo", min_pacing.section or min_pacing.equipment],
+            ["Minimum feasible pacing [s]", round(min_pacing.pacing, 1)],
+            ["Binding constraint at the minimum pacing", min_pacing.section or min_pacing.equipment],
         ]
     if mc is not None:
         summary += [
-            ["Monte Carlo: run", mc.runs],
-            ["Monte Carlo: violazioni", mc.violations],
-            ["Monte Carlo: tasso di violazione [%]", round(100 * mc.violation_rate, 2)],
-            ["Monte Carlo: gap medio [m]", round(mc.mean, 2)],
-            ["Monte Carlo: gap 5o percentile [m]", round(mc.percentile(0.05), 2)],
+            ["Monte Carlo: runs", mc.runs],
+            ["Monte Carlo: violations", mc.violations],
+            ["Monte Carlo: violation rate [%]", round(100 * mc.violation_rate, 2)],
+            ["Monte Carlo: mean gap [m]", round(mc.mean, 2)],
+            ["Monte Carlo: 5th percentile gap [m]", round(mc.percentile(0.05), 2)],
         ]
-    _table(wb, "Riepilogo", ["Voce", "Valore"], summary)
+    _table(wb, "Summary", ["Item", "Value"], summary)
 
     _table(
         wb,
-        "Eventi",
-        ["pezzo", "t [s]", "evento", "apparecchiatura", "x [m]", "dettaglio"],
+        "Events",
+        ["piece", "t [s]", "event", "equipment", "x [m]", "detail"],
         [
             [r.piece_id, round(e.t, 3), e.kind, e.equipment_id, round(e.x, 2), e.detail]
             for r in results
@@ -98,8 +98,8 @@ def write_results(
 
     _table(
         wb,
-        "Occupazione",
-        ["pezzo", "apparecchiatura", "passata", "ingresso [s]", "uscita [s]", "durata [s]"],
+        "Occupancy",
+        ["piece", "equipment", "pass", "in [s]", "out [s]", "duration [s]"],
         [
             [r.piece_id, o.equipment_id, o.pass_no, round(o.t_in, 2), round(o.t_out, 2), round(o.duration, 2)]
             for r in results
@@ -111,16 +111,16 @@ def write_results(
         wb,
         "Gap",
         [
-            "pezzo davanti",
-            "pezzo dietro",
-            "gap minimo [m]",
+            "front piece",
+            "rear piece",
+            "minimum gap [m]",
             "t [s]",
             "x [m]",
-            "sezione",
-            "apparecchiatura",
-            "gap temporale [s]",
-            "prima violazione [s]",
-            "esito",
+            "section",
+            "equipment",
+            "time gap [s]",
+            "first violation [s]",
+            "outcome",
         ],
         [
             [
@@ -133,7 +133,7 @@ def write_results(
                 a.critical.equipment if a.critical else "",
                 round(a.headway, 2) if a.headway is not None else "",
                 round(a.t_first_violation, 2) if a.t_first_violation is not None else "",
-                "ok" if a.ok else "VIOLAZIONE",
+                "ok" if a.ok else "VIOLATION",
             ]
             for a in analyses
         ],
@@ -143,12 +143,12 @@ def write_results(
         _table(
             wb,
             "PacingCurve",
-            ["pacing [s]", "gap minimo [m]", "ammissibile", "t critico [s]", "x critico [m]", "sezione", "coppia"],
+            ["pacing [s]", "minimum gap [m]", "feasible", "critical t [s]", "critical x [m]", "section", "pair"],
             [
                 [
                     round(p.pacing, 2),
-                    round(p.min_gap, 2) if p.min_gap != float("inf") else "nessuna interazione",
-                    "si" if p.feasible else "no",
+                    round(p.min_gap, 2) if p.min_gap != float("inf") else "no interaction",
+                    "yes" if p.feasible else "no",
                     round(p.t_critical, 2) if p.t_critical is not None else "",
                     round(p.x_critical, 2) if p.x_critical is not None else "",
                     p.section,
@@ -160,10 +160,10 @@ def write_results(
 
     _table(
         wb,
-        "BilancioMassa",
-        ["prodotto", "lunghezza cinematica [m]", "lunghezza geometrica [m]", "scarto [%]", "esito"],
+        "MassBalance",
+        ["product", "kinematic length [m]", "geometric length [m]", "deviation [%]", "outcome"],
         [
-            [c.piece_id, round(c.length_kinematic, 2), round(c.length_geometric, 2), round(c.error_pct, 4), "ok" if c.ok else "ATTENZIONE"]
+            [c.piece_id, round(c.length_kinematic, 2), round(c.length_geometric, 2), round(c.error_pct, 4), "ok" if c.ok else "WARNING"]
             for c in mass_balance(results)
         ],
     )
@@ -172,7 +172,7 @@ def write_results(
         _table(
             wb,
             "MassFlowTandem",
-            ["prodotto", "passata", "gabbia", "v inserita [m/s]", "v da bilancio [m/s]", "scarto [%]"],
+            ["product", "pass", "stand", "v entered [m/s]", "v from balance [m/s]", "deviation [%]"],
             [
                 [d.product_id, d.pass_no, d.equipment_id, round(d.v_input, 4), round(d.v_massflow, 4), round(d.deviation_pct, 3)]
                 for d in deviations

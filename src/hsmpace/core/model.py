@@ -1,10 +1,10 @@
-"""Modello di dominio: layout, sezioni, eventi di velocita', pass schedule.
+"""Domain model: layout, sections, speed events, pass schedule.
 
-Unita' interne, fissate e non negoziabili nel core:
+Internal units, fixed and not negotiable in the core:
 
-* posizioni e lunghezze in metri
-* spessori e larghezze in millimetri
-* velocita' in m/s, accelerazioni in m/s2, tempi in secondi
+* positions and lengths in metres
+* thicknesses and widths in millimetres
+* speeds in m/s, accelerations in m/s2, times in seconds
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ EQUIPMENT_KINDS = (KIND_START, KIND_STAND, KIND_COILER, KIND_MARKER)
 
 
 class ModelError(ValueError):
-    """Incoerenza nel modello che impedisce la simulazione."""
+    """Inconsistency in the model that prevents the simulation from running."""
 
 
 @dataclass(frozen=True)
@@ -41,13 +41,13 @@ class Equipment:
 
 @dataclass(frozen=True)
 class SpeedEvent:
-    """Cambio di velocita' comandato, ancorato a una posizione della linea.
+    """Commanded speed change, anchored to a position along the line.
 
-    Scatta quando l'estremita' che guida nel verso corrente attraversa
-    ``x_trigger`` muovendosi nel verso ``direction``. Se scatta mentre una
-    passata e' ingaggiata e ``during_pass`` e' falso, viene differito al
-    momento in cui il pezzo torna libero: in laminazione comanda il mill, non
-    la via a rulli.
+    It fires when the extremity leading in the current direction of travel
+    crosses ``x_trigger`` moving in direction ``direction``. If it fires while a
+    pass is engaged and ``during_pass`` is false, it is deferred to the moment
+    the piece is free again: while rolling it is the mill that commands, not the
+    roller table.
     """
 
     id: str
@@ -59,8 +59,8 @@ class SpeedEvent:
     during_pass: bool = False
     origin: str = "section"
     rel_pct: float = 0.0
-    """Se diverso da zero l'evento e' relativo: moltiplica la velocita' comandata
-    invece di sostituirla. Usato dallo zoom rolling, che e' definito in %."""
+    """When non zero the event is relative: it multiplies the commanded speed
+    instead of replacing it. Used by zoom rolling, which is defined in per cent."""
 
 
 @dataclass(frozen=True)
@@ -96,9 +96,9 @@ class RollingPass:
     v_exit: float
     reversing_delay: float = 0.0
     reversing_clearance: float = 0.0
-    """Distanza fra la gabbia e l'estremita' piu' vicina del pezzo quando questo
-    si ferma per invertire, prima di questa passata. Con zero il pezzo si ferma
-    appena la decelerazione lo consente, cioe' a `v^2/(2a)` dalla gabbia."""
+    """Distance between the stand and the closest extremity of the piece when it
+    comes to rest to reverse, ahead of this pass. With zero the piece stops as
+    soon as the deceleration allows, that is at `v^2/(2a)` from the stand."""
     approach_v: float | None = None
     master: bool = False
     zoom_pct: float = 0.0
@@ -108,7 +108,7 @@ class RollingPass:
 
     @property
     def elongation(self) -> float:
-        """lambda = (h_in * w_in) / (h_out * w_out): rapporto di allungamento."""
+        """lambda = (h_in * w_in) / (h_out * w_out): elongation ratio."""
         return (self.h_in * self.w_in) / (self.h_out * self.w_out)
 
     @property
@@ -117,7 +117,7 @@ class RollingPass:
 
     @property
     def mass_flux(self) -> float:
-        """Flusso di massa specifico in uscita, mm2*m/s."""
+        """Specific mass flow at exit, mm2*m/s."""
         return self.v_exit * self.h_out * self.w_out
 
 
@@ -137,7 +137,7 @@ class Product:
 
     @property
     def final_length(self) -> float:
-        """Lunghezza finale geometrica, per conservazione del volume."""
+        """Geometric final length, by volume conservation."""
         if not self.passes:
             return self.slab_len
         last = self.passes[-1]
@@ -176,14 +176,14 @@ class Line:
         try:
             return self._by_id[equipment_id]
         except KeyError as exc:
-            raise ModelError(f"apparecchiatura sconosciuta: {equipment_id!r}") from exc
+            raise ModelError(f"unknown equipment: {equipment_id!r}") from exc
 
     @property
     def start(self) -> Equipment:
         for e in self.equipment:
             if e.kind == KIND_START:
                 return e
-        raise ModelError("nessuna apparecchiatura di tipo 'start' nel layout")
+        raise ModelError("no equipment of kind 'start' in the layout")
 
     @property
     def coilers(self) -> tuple[Equipment, ...]:
@@ -212,7 +212,7 @@ class Line:
 
 @dataclass(frozen=True)
 class Case:
-    """Caso completo: linea, prodotti e impostazioni di simulazione."""
+    """Complete case: line, products and simulation settings."""
 
     line: Line
     products: tuple[Product, ...]
@@ -223,7 +223,7 @@ class Case:
         for p in self.products:
             if p.id == product_id:
                 return p
-        raise ModelError(f"prodotto sconosciuto: {product_id!r}")
+        raise ModelError(f"unknown product: {product_id!r}")
 
     @property
     def piece_products(self) -> tuple[str, ...]:
@@ -231,7 +231,7 @@ class Case:
         if seq:
             return seq
         if not self.products:
-            raise ModelError("nessun prodotto definito")
+            raise ModelError("no product defined")
         return tuple([self.products[0].id] * self.settings.n_pieces)
 
 
@@ -253,12 +253,12 @@ class MassFlowDeviation:
 def harmonise_tandem_speeds(
     case: Case,
 ) -> tuple[Case, tuple[MassFlowDeviation, ...]]:
-    """Impone il bilancio di massa nei gruppi tandem a partire dalla gabbia master.
+    """Enforce the mass flow balance in tandem groups from the master stand.
 
-    Nel tandem il nastro fra due gabbie ha lunghezza fissa, quindi il bilancio
-    di massa non e' una verifica ma un vincolo fisico: velocita' inserite
-    incoerenti descriverebbero un moto impossibile. Le velocita' del gruppo
-    vengono percio' ricalcolate dalla master e gli scostamenti riportati.
+    In a tandem mill the strip between two stands has a fixed length, so the
+    mass flow balance is not a check but a physical constraint: inconsistent
+    input speeds would describe an impossible motion. Group speeds are therefore
+    recomputed from the master and the deviations reported.
     """
     deviations: list[MassFlowDeviation] = []
     new_products: list[Product] = []
@@ -277,7 +277,7 @@ def harmonise_tandem_speeds(
                 continue
             if len(masters) > 1:
                 raise ModelError(
-                    f"prodotto {product.id}: piu' di una gabbia master nel gruppo {group!r}"
+                    f"product {product.id}: more than one master stand in group {group!r}"
                 )
             master = passes[masters[0]]
             flux = master.mass_flux
@@ -297,8 +297,8 @@ def harmonise_tandem_speeds(
 
 @dataclass(frozen=True)
 class Problem:
-    """Incoerenza del modello, con un localizzatore che il layer Excel
-    traduce nella cella di origine."""
+    """Model inconsistency, with a locator that the Excel layer translates into
+    the originating cell."""
 
     locator: str
     message: str
@@ -308,7 +308,7 @@ class Problem:
 
 
 def validate_case(case: Case) -> list[Problem]:
-    """Controlli di coerenza che non dipendono dalla simulazione."""
+    """Consistency checks that do not depend on the simulation."""
     problems: list[Problem] = []
 
     def add(locator: str, message: str) -> None:
@@ -316,7 +316,7 @@ def validate_case(case: Case) -> list[Problem]:
 
     line = case.line
     if not line.equipment:
-        add("", "layout vuoto")
+        add("", "empty layout")
         return problems
 
     try:
@@ -326,52 +326,53 @@ def validate_case(case: Case) -> list[Problem]:
 
     ids = [e.id for e in line.equipment]
     for dup in sorted({i for i in ids if ids.count(i) > 1}):
-        add(f"equipment:{dup}", f"identificativo apparecchiatura duplicato: {dup!r}")
+        add(f"equipment:{dup}", f"duplicated equipment identifier: {dup!r}")
 
     for e in line.equipment:
         if e.kind not in EQUIPMENT_KINDS:
-            add(f"equipment:{e.id}", f"{e.id}: tipo {e.kind!r} non valido")
+            add(f"equipment:{e.id}", f"{e.id}: kind {e.kind!r} is not valid")
         if e.accel <= 0.0:
-            add(f"equipment:{e.id}", f"{e.id}: accelerazione deve essere positiva")
+            add(f"equipment:{e.id}", f"{e.id}: acceleration must be positive")
 
     for s in line.sections:
         if s.length <= 0.0:
-            add(f"section:{s.id}", f"sezione {s.id}: lunghezza deve essere positiva")
+            add(f"section:{s.id}", f"section {s.id}: length must be positive")
         for ev in s.events:
             if ev.v_target < 0.0:
                 add(
                     f"section:{s.id}",
-                    f"sezione {s.id}: velocita' negativa non ammessa, il verso lo da' la passata",
+                    f"section {s.id}: negative speed not allowed, the direction comes "
+                    "from the pass",
                 )
             if not s.contains(ev.x_trigger):
                 add(
                     f"section:{s.id}",
-                    f"sezione {s.id}: evento a x={ev.x_trigger:.2f} m fuori dalla sezione "
+                    f"section {s.id}: event at x={ev.x_trigger:.2f} m outside the section "
                     f"[{s.x_start:.2f}, {s.x_end:.2f}]",
                 )
 
     if not case.products:
-        add("", "nessun prodotto definito")
+        add("", "no product defined")
 
     for product in case.products:
         tag = f"product:{product.id}"
         if product.slab_len <= 0 or product.slab_thk <= 0 or product.slab_wid <= 0:
-            add(tag, f"prodotto {product.id}: dimensioni bramma non valide")
+            add(tag, f"product {product.id}: invalid slab dimensions")
         if not product.passes:
-            add(tag, f"prodotto {product.id}: nessuna passata definita")
+            add(tag, f"product {product.id}: no pass defined")
             continue
 
         if product.passes[0].direction != FWD:
             add(
                 f"pass:{product.id}:{product.passes[0].pass_no}",
-                f"prodotto {product.id}: la prima passata deve essere in verso 'fwd', "
-                "il pezzo lascia il forno andando avanti",
+                f"product {product.id}: the first pass must be in direction 'fwd', "
+                "the piece leaves the furnace moving forward",
             )
         if product.passes[-1].direction != FWD:
             add(
                 f"pass:{product.id}:{product.passes[-1].pass_no}",
-                f"prodotto {product.id}: l'ultima passata deve essere in verso 'fwd', "
-                "altrimenti il pezzo resta in moto all'indietro e non raggiunge l'avvolgitore",
+                f"product {product.id}: the last pass must be in direction 'fwd', "
+                "otherwise the piece keeps moving backwards and never reaches the coiler",
             )
 
         h_prev = product.slab_thk
@@ -379,32 +380,32 @@ def validate_case(case: Case) -> list[Problem]:
         prev: RollingPass | None = None
         for rp in product.passes:
             ptag = f"pass:{product.id}:{rp.pass_no}"
-            head = f"prodotto {product.id} passata {rp.pass_no}"
+            head = f"product {product.id} pass {rp.pass_no}"
             try:
                 eq = line.get(rp.equipment_id)
             except ModelError as exc:
                 add(ptag, f"{head}: {exc}")
                 eq = None
             if eq is not None and eq.kind != KIND_STAND:
-                add(ptag, f"{head}: {eq.id} non e' una gabbia")
+                add(ptag, f"{head}: {eq.id} is not a stand")
             if rp.h_out <= 0 or rp.h_out > rp.h_in:
-                add(ptag, f"{head}: riduzione non valida ({rp.h_in} -> {rp.h_out} mm)")
+                add(ptag, f"{head}: invalid reduction ({rp.h_in} -> {rp.h_out} mm)")
             if abs(rp.h_in - h_prev) > 1e-6:
                 add(
                     ptag,
-                    f"{head}: h_in {rp.h_in} mm non coincide con lo spessore in uscita "
-                    f"dalla passata precedente ({h_prev} mm)",
+                    f"{head}: h_in {rp.h_in} mm does not match the exit thickness of the "
+                    f"previous pass ({h_prev} mm)",
                 )
             if abs(rp.w_in - w_prev) > 1e-6:
                 add(
                     ptag,
-                    f"{head}: w_in {rp.w_in} mm non coincide con la larghezza precedente "
+                    f"{head}: w_in {rp.w_in} mm does not match the previous width "
                     f"({w_prev} mm)",
                 )
             if rp.v_exit <= 0:
-                add(ptag, f"{head}: velocita' non positiva")
+                add(ptag, f"{head}: speed is not positive")
             if rp.reversing_clearance < 0:
-                add(ptag, f"{head}: la quota di sgombero non puo' essere negativa")
+                add(ptag, f"{head}: the reversing clearance cannot be negative")
             if (
                 prev is not None
                 and prev.equipment_id == rp.equipment_id
@@ -412,20 +413,20 @@ def validate_case(case: Case) -> list[Problem]:
             ):
                 add(
                     ptag,
-                    f"{head}: due passate consecutive su {rp.equipment_id} nello stesso verso",
+                    f"{head}: two consecutive passes on {rp.equipment_id} in the same direction",
                 )
             h_prev, w_prev = rp.h_out, rp.w_out
             prev = rp
 
     for pid in case.piece_products:
         if all(p.id != pid for p in case.products):
-            add("setting:piece_products", f"sequenza pezzi: prodotto sconosciuto {pid!r}")
+            add("setting:piece_products", f"piece sequence: unknown product {pid!r}")
 
     if case.settings.pacing <= 0:
-        add("setting:pacing_s", "pacing deve essere positivo")
+        add("setting:pacing_s", "pacing must be positive")
     if case.settings.gap_min < 0:
-        add("setting:gap_min_m", "gap minimo non puo' essere negativo")
+        add("setting:gap_min_m", "the minimum gap cannot be negative")
     if case.settings.n_pieces < 1 and not case.settings.piece_products:
-        add("setting:n_pieces", "serve almeno un pezzo")
+        add("setting:n_pieces", "at least one piece is required")
 
     return problems

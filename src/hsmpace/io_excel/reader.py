@@ -1,7 +1,7 @@
-"""Lettura del workbook di input con validazione severa.
+"""Reading of the input workbook with strict validation.
 
-Ogni problema viene riportato con foglio, cella e motivo: un input ambiguo
-viene rifiutato con un messaggio comprensibile, mai con un traceback.
+Every problem is reported with sheet, cell and reason: an ambiguous input is
+rejected with an understandable message, never with a traceback.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from ..core.model import (
 )
 from . import schema as S
 
-_TRUE = {"si", "s", "true", "vero", "x", "yes", "y", "1"}
+_TRUE = {"yes", "y", "true", "si", "s", "vero", "x", "1"}
 _FALSE = {"no", "n", "false", "falso", "0", ""}
 
 
@@ -47,8 +47,9 @@ class ValidationError(Exception):
     def __init__(self, issues: list[ValidationIssue]) -> None:
         self.issues = issues
         head = "\n".join(f"  - {i}" for i in issues[:40])
-        extra = "" if len(issues) <= 40 else f"\n  ... e altri {len(issues) - 40} problemi"
-        super().__init__(f"Input non valido ({len(issues)} problemi):\n{head}{extra}")
+        extra = "" if len(issues) <= 40 else f"\n  ... and {len(issues) - 40} more problems"
+        count = f"{len(issues)} problem" + ("" if len(issues) == 1 else "s")
+        super().__init__(f"Invalid input ({count}):\n{head}{extra}")
 
 
 class _Collector:
@@ -64,7 +65,7 @@ class _Collector:
 
 
 class _Table:
-    """Foglio tabellare con intestazione in riga 1."""
+    """Tabular sheet with the header on row 1."""
 
     def __init__(self, ws: Any, columns: list[str], issues: _Collector) -> None:
         self.ws = ws
@@ -78,7 +79,7 @@ class _Table:
         self.header = header
         for name in columns:
             if name not in header and name not in S.OPTIONAL_COLUMNS:
-                issues.add(self.name, "1", f"colonna mancante: {name!r}")
+                issues.add(self.name, "1", f"missing column: {name!r}")
 
     def rows(self) -> list[int]:
         out = []
@@ -105,7 +106,7 @@ class _Table:
         value = self.raw(row, name)
         if value is None or value == "":
             if required:
-                self.issues.add(self.name, self.ref(row, name), f"{name}: valore obbligatorio")
+                self.issues.add(self.name, self.ref(row, name), f"{name}: value is required")
             return default
         return str(value).strip()
 
@@ -120,7 +121,7 @@ class _Table:
         value = self.raw(row, name)
         if value is None or value == "":
             if required:
-                self.issues.add(self.name, self.ref(row, name), f"{name}: valore obbligatorio")
+                self.issues.add(self.name, self.ref(row, name), f"{name}: value is required")
             return default
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             try:
@@ -129,7 +130,7 @@ class _Table:
                 self.issues.add(
                     self.name,
                     self.ref(row, name),
-                    f"{name}: {value!r} non e' un numero",
+                    f"{name}: {value!r} is not a number",
                 )
                 return default
         value = float(value)
@@ -137,7 +138,7 @@ class _Table:
             self.issues.add(
                 self.name,
                 self.ref(row, name),
-                f"{name}: {value:g} sotto il minimo ammesso ({minimum:g})",
+                f"{name}: {value:g} is below the allowed minimum ({minimum:g})",
             )
         return value
 
@@ -157,7 +158,7 @@ class _Table:
         if text in _FALSE:
             return False
         self.issues.add(
-            self.name, self.ref(row, name), f"{name}: {value!r} non e' SI/NO"
+            self.name, self.ref(row, name), f"{name}: {value!r} is not YES/NO"
         )
         return default
 
@@ -166,12 +167,12 @@ class _Table:
         if value is None or value == "":
             return default
         text = str(value).strip().lower()
-        if text in {"fwd", "avanti", "+1", "1", "diretta"}:
+        if text in {"fwd", "forward", "avanti", "+1", "1", "diretta"}:
             return FWD
-        if text in {"rev", "indietro", "-1", "inversa"}:
+        if text in {"rev", "reverse", "indietro", "-1", "inversa"}:
             return REV
         self.issues.add(
-            self.name, self.ref(row, name), f"{name}: {value!r} non e' fwd/rev"
+            self.name, self.ref(row, name), f"{name}: {value!r} is not fwd/rev"
         )
         return default
 
@@ -190,14 +191,14 @@ def _key_values(ws: Any) -> dict[str, tuple[Any, str]]:
 def read_case(path: str | Path) -> Case:
     path = Path(path)
     if not path.exists():
-        raise FileNotFoundError(f"file non trovato: {path}")
+        raise FileNotFoundError(f"file not found: {path}")
 
     issues = _Collector()
     wb = load_workbook(path, data_only=True, read_only=False)
 
     for name in (S.SHEET_INFO, S.SHEET_LAYOUT, S.SHEET_SECTIONS, S.SHEET_PRODUCTS, S.SHEET_PASSES):
         if name not in wb.sheetnames:
-            issues.add(name, "", "foglio mancante nel workbook")
+            issues.add(name, "", "sheet missing from the workbook")
     issues.raise_if_any()
 
     info_raw = _key_values(wb[S.SHEET_INFO])
@@ -207,7 +208,7 @@ def read_case(path: str | Path) -> Case:
         issues.add(
             S.SHEET_INFO,
             info_raw["schema_version"][1],
-            f"schema_version {version!r} non supportata, attesa {S.SCHEMA_VERSION!r}",
+            f"schema_version {version!r} is not supported, expected {S.SCHEMA_VERSION!r}",
         )
 
     locations: dict[str, tuple[str, str]] = {}
@@ -249,7 +250,7 @@ def _read_layout(
             issues.add(
                 table.name,
                 table.ref(row, "kind"),
-                f"kind {kind!r} non valido: usare start, stand, coiler o marker",
+                f"kind {kind!r} is not valid: use start, stand, coiler or marker",
             )
         out.append(
             Equipment(
@@ -263,7 +264,7 @@ def _read_layout(
             )
         )
     if not out:
-        issues.add(table.name, "A2", "nessuna apparecchiatura definita")
+        issues.add(table.name, "A2", "no equipment defined")
     return out
 
 
@@ -294,7 +295,7 @@ def _read_sections(
             issues.add(
                 table.name,
                 table.ref(row, "start_ref"),
-                f"riferimento {ref!r} sconosciuto: usare un equipment_id, 'prev' o lasciare vuoto",
+                f"unknown reference {ref!r}: use an equipment_id, 'prev', or leave it empty",
             )
             x_start = offset
 
@@ -313,7 +314,7 @@ def _read_sections(
                 issues.add(
                     table.name,
                     table.ref(row, f"d{i}_m"),
-                    f"evento {i}: distanza e velocita' vanno indicate entrambe",
+                    f"event {i}: distance and speed must both be given",
                 )
                 continue
             distance = table.number(row, f"d{i}_m", minimum=0.0) or 0.0
@@ -323,14 +324,14 @@ def _read_sections(
                 issues.add(
                     table.name,
                     table.ref(row, f"d{i}_m"),
-                    f"evento {i}: distanza {distance:g} m oltre la lunghezza della sezione "
+                    f"event {i}: distance {distance:g} m beyond the section length "
                     f"({length:g} m)",
                 )
             if last_d is not None and distance < last_d - 1e-9:
                 issues.add(
                     table.name,
                     table.ref(row, f"d{i}_m"),
-                    f"evento {i}: distanze non crescenti ({distance:g} dopo {last_d:g})",
+                    f"event {i}: distances are not increasing ({distance:g} after {last_d:g})",
                 )
             last_d = distance
             events.append(
@@ -416,12 +417,12 @@ def _read_products(
             issues.add(
                 table.name,
                 table.ref(row, "product_id"),
-                f"nessuna passata nel foglio {S.SHEET_PASSES} per il prodotto {product_id!r}",
+                f"no pass in sheet {S.SHEET_PASSES} for product {product_id!r}",
             )
         numbers = [p.pass_no for p in passes]
         for dup in sorted({n for n in numbers if numbers.count(n) > 1}):
             issues.add(
-                passes_table.name, "", f"prodotto {product_id}: numero passata duplicato {dup}"
+                passes_table.name, "", f"product {product_id}: duplicated pass number {dup}"
             )
         out.append(
             Product(
@@ -439,7 +440,7 @@ def _read_products(
         issues.add(
             passes_table.name,
             "",
-            f"passate riferite al prodotto {orphan!r}, assente dal foglio {S.SHEET_PRODUCTS}",
+            f"passes refer to product {orphan!r}, which is missing from sheet {S.SHEET_PRODUCTS}",
         )
     return out
 
@@ -461,7 +462,7 @@ def _read_settings(
         try:
             return float(str(value).replace(",", "."))
         except ValueError:
-            issues.add(ws.title, cell, f"{key}: {value!r} non e' un numero")
+            issues.add(ws.title, cell, f"{key}: {value!r} is not a number")
             return fallback
 
     def flag(key: str, fallback: bool) -> bool:
@@ -477,7 +478,7 @@ def _read_settings(
             return True
         if text in _FALSE:
             return False
-        issues.add(ws.title, cell, f"{key}: {value!r} non e' SI/NO")
+        issues.add(ws.title, cell, f"{key}: {value!r} is not YES/NO")
         return fallback
 
     sequence: tuple[str, ...] = ()

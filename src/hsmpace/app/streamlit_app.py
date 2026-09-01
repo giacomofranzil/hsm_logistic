@@ -1,7 +1,7 @@
-"""Interfaccia web del tool di pacing.
+"""Web interface of the pacing tool.
 
-Gira indifferentemente in locale sul PC di chi la usa (127.0.0.1, nessun
-server, nessuna porta da aprire) o pubblicata su un server d'ufficio.
+It runs equally well locally on the machine of whoever uses it (127.0.0.1, no
+server, no port to open) or published on an office server.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ PLOT_CONFIG = {
     "displaylogo": False,
     "toImageButtonOptions": {"format": "png", "scale": 3, "filename": "hsmpace"},
 }
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 @st.cache_data(show_spinner=False)
@@ -84,7 +85,7 @@ def _results_bytes(case, results, analyses, deviations, curve, min_pacing, mc) -
 
 def _events_csv(results: list[PieceResult]) -> str:
     buffer = io.StringIO()
-    buffer.write("pezzo,t_s,evento,apparecchiatura,x_m,dettaglio\n")
+    buffer.write("piece,t_s,event,equipment,x_m,detail\n")
     for res in results:
         for e in res.events:
             buffer.write(
@@ -95,27 +96,27 @@ def _events_csv(results: list[PieceResult]) -> str:
 
 def main() -> None:
     st.set_page_config(page_title="HSM pacing", page_icon="~", layout="wide")
-    st.title("Diagramma spazio-tempo e pacing di un Hot Strip Mill")
+    st.title("Space-time diagram and pacing of a Hot Strip Mill")
 
     with st.sidebar:
         st.header("Input")
-        uploaded = st.file_uploader("Workbook di input (.xlsx)", type=["xlsx"])
+        uploaded = st.file_uploader("Input workbook (.xlsx)", type=["xlsx"])
         st.caption(
-            "Senza file caricato viene usato l'impianto di esempio incluso, "
-            "con dati inventati ma plausibili."
+            "With no file loaded the built-in example mill is used, with invented "
+            "but plausible data."
         )
         st.download_button(
-            "Scarica il template vuoto",
+            "Download the empty template",
             data=_template_bytes(False),
             file_name="hsm_template.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            mime=XLSX_MIME,
             width="stretch",
         )
         st.download_button(
-            "Scarica l'esempio compilato",
+            "Download the filled example",
             data=_template_bytes(True),
-            file_name="hsm_esempio.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            file_name="hsm_example.xlsx",
+            mime=XLSX_MIME,
             width="stretch",
         )
 
@@ -125,14 +126,18 @@ def main() -> None:
             source = uploaded.name
         else:
             case, deviations, base = _load_example()
-            source = "impianto di esempio"
+            source = "example mill"
     except ValidationError as exc:
-        st.error("Il workbook non e' valido: correggere le celle indicate e ricaricare.")
+        st.error("The workbook is not valid: fix the cells listed below and load it again.")
         for issue in exc.issues:
-            st.write(f"- **{issue.sheet}!{issue.cell}** {issue.message}" if issue.cell else f"- {issue.message}")
+            st.write(
+                f"- **{issue.sheet}!{issue.cell}** {issue.message}"
+                if issue.cell
+                else f"- {issue.message}"
+            )
         st.stop()
-    except Exception as exc:  # noqa: BLE001 - messaggio leggibile invece del traceback
-        st.error(f"Errore nella lettura del file: {exc}")
+    except Exception as exc:  # noqa: BLE001 - readable message instead of a traceback
+        st.error(f"Error while reading the file: {exc}")
         st.stop()
 
     with st.sidebar:
@@ -144,25 +149,25 @@ def main() -> None:
             max_value=float(settings.pacing_scan_max),
             value=float(settings.pacing),
             step=1.0,
-            help="Cadenza con cui i pezzi entrano nel processo.",
+            help="Cadence at which pieces enter the process.",
         )
         gap_min = st.number_input(
-            "Gap minimo richiesto [m]", min_value=0.0, value=float(settings.gap_min), step=1.0
+            "Minimum gap required [m]", min_value=0.0, value=float(settings.gap_min), step=1.0
         )
         n_pieces = st.slider(
-            "Pezzi in sequenza", min_value=2, max_value=8, value=max(2, settings.n_pieces)
+            "Pieces in sequence", min_value=2, max_value=8, value=max(2, settings.n_pieces)
         )
-        time_down = st.checkbox("Tempo crescente verso il basso", value=settings.time_axis_down)
+        time_down = st.checkbox("Time increasing downwards", value=settings.time_axis_down)
         show_virtual = st.checkbox(
-            "Mostra la testa virtuale",
+            "Show the virtual head",
             value=False,
-            help="La testa non vincolata, che prosegue oltre l'avvolgitore e comanda "
-            "il trigger dello zoom rolling.",
+            help="The unconstrained head, which carries on beyond the coiler and drives "
+            "the zoom rolling trigger.",
         )
-        st.header("Robustezza")
-        run_mc = st.checkbox("Calcola il Monte Carlo", value=False)
+        st.header("Robustness")
+        run_mc = st.checkbox("Run the Monte Carlo", value=False)
         mc_runs = st.number_input(
-            "Run", min_value=50, max_value=20000, value=int(settings.mc_runs), step=50
+            "Runs", min_value=50, max_value=20000, value=int(settings.mc_runs), step=50
         )
 
     case = replace(
@@ -182,43 +187,43 @@ def main() -> None:
     analyses = analyse_sequence(results, gap_min, case.line)
     worst = min(analyses, key=lambda a: a.min_gap) if analyses else None
 
-    with st.spinner("Scansione del pacing..."):
+    with st.spinner("Scanning the pacing..."):
         curve = gap_vs_pacing(case, base)
         min_pacing = min_feasible_pacing(case, base, curve)
 
     mc = None
     if run_mc:
-        with st.spinner(f"Monte Carlo su {int(mc_runs)} run..."):
+        with st.spinner(f"Monte Carlo over {int(mc_runs)} runs..."):
             mc = monte_carlo(case, pacing=pacing, runs=int(mc_runs))
 
     cols = st.columns(4)
-    cols[0].metric("Gap minimo", f"{worst.min_gap:.1f} m" if worst else "nessuna interazione")
+    cols[0].metric("Minimum gap", f"{worst.min_gap:.1f} m" if worst else "no interaction")
     cols[1].metric(
-        "Esito",
-        "ammissibile" if (worst is None or worst.ok) else "violazione",
-        delta=None if worst is None else f"{worst.min_gap - gap_min:+.1f} m di margine",
+        "Outcome",
+        "feasible" if (worst is None or worst.ok) else "violation",
+        delta=None if worst is None else f"{worst.min_gap - gap_min:+.1f} m of margin",
         delta_color="normal" if (worst is None or worst.ok) else "inverse",
     )
     cols[2].metric(
-        "Pacing minimo ammissibile",
-        f"{min_pacing.pacing:.0f} s" if min_pacing else "non trovato",
+        "Minimum feasible pacing",
+        f"{min_pacing.pacing:.0f} s" if min_pacing else "not found",
     )
     cols[3].metric(
-        "Margine sul pacing",
+        "Margin on the pacing",
         f"{pacing - min_pacing.pacing:+.0f} s" if min_pacing else "-",
     )
 
     if worst and worst.critical:
-        where = worst.critical.section or "linea"
-        near = f", vicino a {worst.critical.equipment}" if worst.critical.equipment else ""
+        where = worst.critical.section or "line"
+        near = f", near {worst.critical.equipment}" if worst.critical.equipment else ""
         st.caption(
-            f"Fonte: {source}. Punto critico fra {worst.front_id} e {worst.rear_id} a "
-            f"x = {worst.critical.x:.1f} m ({where}{near}) all'istante {worst.critical.t:.1f} s"
-            + (f", pari a {worst.headway:.1f} s di distanza temporale." if worst.headway else ".")
+            f"Source: {source}. Critical point between {worst.front_id} and {worst.rear_id} at "
+            f"x = {worst.critical.x:.1f} m ({where}{near}) at t = {worst.critical.t:.1f} s"
+            + (f", that is {worst.headway:.1f} s of time distance." if worst.headway else ".")
         )
 
     tabs = st.tabs(
-        ["Diagramma", "Gap", "Pacing", "Occupazione", "Eventi", "Dati e controlli", "Misure"]
+        ["Diagram", "Gap", "Pacing", "Occupancy", "Events", "Data and checks", "Measurements"]
     )
 
     with tabs[0]:
@@ -228,27 +233,25 @@ def main() -> None:
             config=PLOT_CONFIG,
         )
         st.caption(
-            "Ogni pezzo e' la banda fra testa e coda. La banda si allarga dove il pezzo "
-            "viene laminato e si stringe quando la testa e' presa dall'avvolgitore. "
-            "Per esportare l'immagine usare l'icona della macchina fotografica: il PNG "
-            "esce a tripla risoluzione."
+            "Every piece is the band between head and tail. The band widens where the "
+            "piece is being rolled and narrows once the head is gripped by the coiler. "
+            "Use the camera icon to export the picture: the PNG comes out at triple "
+            "resolution."
         )
 
     with tabs[1]:
-        st.plotly_chart(
-            gap_figure(analyses, gap_min), width="stretch", config=PLOT_CONFIG
-        )
+        st.plotly_chart(gap_figure(analyses, gap_min), width="stretch", config=PLOT_CONFIG)
         if analyses:
             st.dataframe(
                 [
                     {
-                        "coppia": f"{a.front_id} / {a.rear_id}",
-                        "gap minimo [m]": round(a.min_gap, 2),
+                        "pair": f"{a.front_id} / {a.rear_id}",
+                        "minimum gap [m]": round(a.min_gap, 2),
                         "t [s]": round(a.critical.t, 1) if a.critical else None,
                         "x [m]": round(a.critical.x, 1) if a.critical else None,
-                        "sezione": a.critical.section if a.critical else "",
-                        "gap temporale [s]": round(a.headway, 1) if a.headway else None,
-                        "esito": "ok" if a.ok else "violazione",
+                        "section": a.critical.section if a.critical else "",
+                        "time gap [s]": round(a.headway, 1) if a.headway else None,
+                        "outcome": "ok" if a.ok else "violation",
                     }
                     for a in analyses
                 ],
@@ -263,40 +266,38 @@ def main() -> None:
             config=PLOT_CONFIG,
         )
         st.caption(
-            "Il pacing minimo si legge dove la curva incrocia la soglia. La distanza "
-            "verticale dalla soglia e' il margine con cui si sta lavorando."
+            "The minimum pacing is read where the curve crosses the threshold. The "
+            "vertical distance from the threshold is the margin being worked with."
         )
         if mc is not None:
             st.plotly_chart(
                 monte_carlo_figure(mc, gap_min), width="stretch", config=PLOT_CONFIG
             )
             st.write(
-                f"Su {mc.runs} run con velocita' entro "
-                f"{case.settings.mc_speed_tol_pct:g}% e tempi morti dispersi di "
-                f"{case.settings.mc_delay_sigma:g} s: **{mc.violations} violazioni** "
-                f"({100 * mc.violation_rate:.1f}%), gap medio {mc.mean:.1f} m, "
-                f"quinto percentile {mc.percentile(0.05):.1f} m."
+                f"Over {mc.runs} runs with speeds within "
+                f"{case.settings.mc_speed_tol_pct:g}% and dead times dispersed by "
+                f"{case.settings.mc_delay_sigma:g} s: **{mc.violations} violations** "
+                f"({100 * mc.violation_rate:.1f}%), mean gap {mc.mean:.1f} m, "
+                f"fifth percentile {mc.percentile(0.05):.1f} m."
             )
         else:
-            st.info("Attivare il Monte Carlo nella barra laterale per la stima di robustezza.")
+            st.info("Enable the Monte Carlo in the sidebar for the robustness estimate.")
 
     with tabs[3]:
-        st.plotly_chart(
-            gantt_figure(case, results), width="stretch", config=PLOT_CONFIG
-        )
+        st.plotly_chart(gantt_figure(case, results), width="stretch", config=PLOT_CONFIG)
 
     with tabs[4]:
         piece_ids = [r.piece_id for r in results]
-        selected = st.selectbox("Pezzo", piece_ids)
+        selected = st.selectbox("Piece", piece_ids)
         chosen = next(r for r in results if r.piece_id == selected)
         st.dataframe(
             [
                 {
                     "t [s]": round(e.t, 2),
-                    "evento": e.kind,
-                    "apparecchiatura": e.equipment_id,
+                    "event": e.kind,
+                    "equipment": e.equipment_id,
                     "x [m]": round(e.x, 1),
-                    "dettaglio": e.detail,
+                    "detail": e.detail,
                 }
                 for e in chosen.events
             ],
@@ -305,22 +306,22 @@ def main() -> None:
             height=460,
         )
         st.download_button(
-            "Scarica gli eventi in CSV",
+            "Download the events as CSV",
             data=_events_csv(results),
-            file_name="eventi.csv",
+            file_name="events.csv",
             mime="text/csv",
         )
 
     with tabs[5]:
-        st.subheader("Bilancio di massa")
+        st.subheader("Mass balance")
         st.dataframe(
             [
                 {
-                    "prodotto": c.piece_id,
-                    "lunghezza cinematica [m]": round(c.length_kinematic, 2),
-                    "lunghezza geometrica [m]": round(c.length_geometric, 2),
-                    "scarto [%]": round(c.error_pct, 4),
-                    "esito": "ok" if c.ok else "attenzione",
+                    "product": c.piece_id,
+                    "kinematic length [m]": round(c.length_kinematic, 2),
+                    "geometric length [m]": round(c.length_geometric, 2),
+                    "deviation [%]": round(c.error_pct, 4),
+                    "outcome": "ok" if c.ok else "warning",
                 }
                 for c in mass_balance(results)
             ],
@@ -328,21 +329,21 @@ def main() -> None:
             hide_index=True,
         )
         st.caption(
-            "Le due lunghezze coincidono per costruzione: uno scarto segnala un errore "
-            "nell'input o nel modello."
+            "The two lengths coincide by construction: a deviation signals an error in "
+            "the input or in the model."
         )
 
-        st.subheader("Velocita' del tandem ricalcolate dalla gabbia master")
+        st.subheader("Tandem speeds recomputed from the master stand")
         if deviations:
             st.dataframe(
                 [
                     {
-                        "prodotto": d.product_id,
-                        "passata": d.pass_no,
-                        "gabbia": d.equipment_id,
-                        "v inserita [m/s]": round(d.v_input, 3),
-                        "v da bilancio [m/s]": round(d.v_massflow, 3),
-                        "scarto [%]": round(d.deviation_pct, 2),
+                        "product": d.product_id,
+                        "pass": d.pass_no,
+                        "stand": d.equipment_id,
+                        "v entered [m/s]": round(d.v_input, 3),
+                        "v from balance [m/s]": round(d.v_massflow, 3),
+                        "deviation [%]": round(d.deviation_pct, 2),
                     }
                     for d in deviations
                 ],
@@ -350,33 +351,33 @@ def main() -> None:
                 hide_index=True,
             )
             st.caption(
-                "Nel tandem il nastro fra due gabbie ha lunghezza fissa, quindi il bilancio "
-                "di massa e' un vincolo fisico e non una verifica: le velocita' vengono "
-                "ricalcolate dalla master e qui si vede quanto si discostano da quelle inserite."
+                "In a tandem mill the strip between two stands has a fixed length, so the "
+                "mass flow balance is a physical constraint and not a check: speeds are "
+                "recomputed from the master and this is how far they sit from the ones "
+                "entered."
             )
         else:
-            st.success("Le velocita' inserite nel tandem sono gia' coerenti con il bilancio di massa.")
+            st.success("The tandem speeds entered are already consistent with the mass balance.")
 
         for res in results[:1]:
-            if res.warnings:
-                for warning in res.warnings:
-                    st.warning(warning)
+            for warning in res.warnings:
+                st.warning(warning)
 
-        st.subheader("Esporta")
+        st.subheader("Export")
         st.download_button(
-            "Scarica i risultati in Excel",
+            "Download the results as Excel",
             data=_results_bytes(case, results, analyses, deviations, curve, min_pacing, mc),
-            file_name="hsmpace_risultati.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            file_name="hsmpace_results.xlsx",
+            mime=XLSX_MIME,
         )
 
     with tabs[6]:
-        st.subheader("Confronto con il tracking reale")
+        st.subheader("Comparison against measured tracking")
         st.write(
-            "Formato CSV: `piece_id,time_s,head_m,tail_m` con `tail_m` facoltativa e "
-            "posizioni riferite alla stessa origine del layout."
+            "CSV format: `piece_id,time_s,head_m,tail_m` with `tail_m` optional and "
+            "positions referred to the same origin as the layout."
         )
-        measured = st.file_uploader("Tracking misurato (.csv)", type=["csv"], key="tracking")
+        measured = st.file_uploader("Measured tracking (.csv)", type=["csv"], key="tracking")
         if measured is not None:
             try:
                 series = parse_tracking(measured.getvalue().decode("utf-8-sig").splitlines())
@@ -384,7 +385,7 @@ def main() -> None:
                 st.error(str(exc))
             else:
                 offset = st.number_input(
-                    "Sfasamento temporale da applicare alle misure [s]", value=0.0, step=1.0
+                    "Time shift applied to the measurements [s]", value=0.0, step=1.0
                 )
                 shifted = [s.shift(offset) for s in series]
                 st.plotly_chart(
@@ -394,8 +395,8 @@ def main() -> None:
                 )
         else:
             st.info(
-                "Nessun file caricato. Il confronto simulato contro misurato e' il modo piu' "
-                "rapido per far accettare in reparto i numeri che escono dal tool."
+                "No file loaded. Overlaying simulated against measured is the quickest way "
+                "to get the numbers coming out of this tool accepted on the shop floor."
             )
 
 

@@ -1,24 +1,24 @@
-"""Simulatore a eventi del moto di un pezzo lungo la linea.
+"""Event-driven simulator of a piece travelling along the line.
 
-Principio: **la testa comanda, la coda si deduce**.
+Governing principle: **the head commands, the tail follows**.
 
-L'utente descrive la velocita' dell'estremita' che guida nel verso corrente
-(la testa materiale nelle passate dirette, la coda in quelle inverse). La
-velocita' dell'altra estremita' discende dal bilancio di massa delle gabbie
-ingaggiate fra le due:
+The user describes the speed of the extremity that leads in the current
+direction of travel (the material head on direct passes, the tail on reverse
+passes). The speed of the other extremity follows from the mass flow balance of
+the stands engaged between the two:
 
-    v_trascinata = v_guida / prod(lambda_i),  lambda_i = (h_in*w_in)/(h_out*w_out)
+    v_trailing = v_leading / prod(lambda_i),  lambda_i = (h_in*w_in)/(h_out*w_out)
 
-Discontinuita' ai cambi di ingaggio, entrambe fisicamente corrette:
+The discontinuities at engagement changes are both physically correct:
 
-* al **bite** e' l'estremita' trascinata a restare continua (il corpo del bar
-  ha massa e non puo' cambiare velocita' di colpo): l'estremita' guida salta
-  di un fattore lambda perche' viene presa dai cilindri;
-* al **tail-out** e' l'estremita' guida a restare continua e quella trascinata
-  a saltare, perche' viene rilasciata dai cilindri.
+* at **bite** it is the trailing extremity that stays continuous (the body of
+  the bar has mass and cannot change speed instantly): the leading extremity
+  jumps by a factor lambda because it is gripped by the rolls;
+* at **tail-out** the opposite happens, the leading extremity stays continuous
+  and the trailing one jumps, because it is released by the rolls.
 
-Con una schedule coerente col bilancio di massa il salto al bite cade esatto
-sulla velocita' di passata e non genera rampe spurie.
+With a schedule consistent with the mass flow balance, the jump at bite lands
+exactly on the pass speed and produces no spurious ramps.
 """
 
 from __future__ import annotations
@@ -56,12 +56,12 @@ class Occupancy:
 
 @dataclass
 class PieceResult:
-    """Esito della simulazione di un pezzo.
+    """Outcome of the simulation of a single piece.
 
-    ``head`` e ``tail`` sono le traiettorie **fisiche**, con la testa bloccata
-    all'avvolgitore. ``head_virtual`` e' la testa non vincolata, che continua ad
-    avanzare oltre l'avvolgitore: e' quella che comanda il trigger dello zoom
-    rolling, secondo la convenzione del modello offline.
+    ``head`` and ``tail`` are the **physical** trajectories, with the head
+    pinned at the coiler. ``head_virtual`` is the unconstrained head, which
+    keeps advancing beyond the coiler: that is the one driving the zoom rolling
+    trigger, following the convention of the offline model.
     """
 
     piece_id: str
@@ -104,7 +104,7 @@ def simulate_piece(
     line = case.line
     passes: list[RollingPass] = list(product.passes)
     if not passes:
-        raise ModelError(f"prodotto {product.id}: nessuna passata definita")
+        raise ModelError(f"product {product.id}: no pass defined")
 
     coilers = line.coilers
     x_coiler = min(e.x for e in coilers) if coilers else None
@@ -143,7 +143,7 @@ def simulate_piece(
     active_events: list[SpeedEvent] = list(line.all_events())
 
     events.append(
-        SimEvent(t, "release", line.start.id, x_head, f"bramma {product.slab_len:.1f} m")
+        SimEvent(t, "release", line.start.id, x_head, f"slab {product.slab_len:.1f} m")
     )
 
     t_max = t_release + case.settings.max_time
@@ -153,11 +153,11 @@ def simulate_piece(
     while not done:
         iterations += 1
         if iterations > _MAX_ITER:
-            raise ModelError(f"{piece_id}: simulazione non convergente (troppi eventi)")
+            raise ModelError(f"{piece_id}: simulation does not converge (too many events)")
         if t > t_max:
             raise ModelError(
-                f"{piece_id}: superato il tempo massimo di {case.settings.max_time:.0f} s. "
-                "Verificare che ogni passata sia raggiungibile nel verso indicato."
+                f"{piece_id}: exceeded the maximum time of {case.settings.max_time:.0f} s. "
+                "Check that every pass is reachable in the direction given."
             )
 
         if waiting_until is not None:
@@ -174,7 +174,9 @@ def simulate_piece(
             reversing = False
             braking = False
             events.append(
-                SimEvent(t, "reverse_end", nxt.equipment_id, x_head, f"verso passata {nxt.pass_no}")
+                SimEvent(
+                    t, "reverse_end", nxt.equipment_id, x_head, f"heading to pass {nxt.pass_no}"
+                )
             )
             continue
 
@@ -194,22 +196,22 @@ def simulate_piece(
             lead_x, lead_v, lead_a = x_tail, v_t, a_t
             trail_x, trail_v, trail_a = x_head, v_h, a_h
 
-        # inversione: il pezzo deve fermarsi con l'estremita' piu' vicina alla
-        # gabbia a `reversing_clearance` metri da essa. Si prosegue a velocita'
-        # costante fino al punto in cui la decelerazione disponibile porta
-        # esattamente li', poi si frena.
+        # reversal: the piece must come to rest with the extremity closest to the
+        # stand at `reversing_clearance` metres from it. It keeps a constant speed
+        # up to the point where the available deceleration lands exactly there,
+        # then brakes.
         if reversing and not braking:
             d_brake = v_lead * v_lead / (2.0 * accel) if accel > 0 else 0.0
             x_brake = stop_target - direction * d_brake
             if direction * (x_brake - trail_x) <= 1e-9:
-                # con sgombero nullo la richiesta e' "fermarsi appena possibile",
-                # quindi la distanza di frenata non e' uno scostamento da segnalare
+                # a zero clearance means "stop as soon as possible", so the braking
+                # distance is not a deviation worth reporting
                 if stop_clearance > 1e-9 and direction * (trail_x - x_brake) > 1e-6:
-                    ottenuta = abs(trail_x + direction * d_brake - stop_stand_x)
+                    achieved = abs(trail_x + direction * d_brake - stop_stand_x)
                     warnings.append(
-                        f"passata {stop_pass_no}: richiesti {stop_clearance:.1f} m di sgombero da "
-                        f"{stop_stand_id}, raggiungibili {ottenuta:.1f} m. Con {v_lead:.2f} m/s e "
-                        f"{accel:.2f} m/s2 il pezzo non riesce a fermarsi prima."
+                        f"pass {stop_pass_no}: {stop_clearance:.1f} m of clearance requested from "
+                        f"{stop_stand_id}, {achieved:.1f} m achievable. At {v_lead:.2f} m/s with "
+                        f"{accel:.2f} m/s2 the piece cannot stop any earlier."
                     )
                 braking = True
                 nominal_target = 0.0
@@ -231,9 +233,9 @@ def simulate_piece(
         if next_idx < len(passes):
             nxt = passes[next_idx]
             x_stand = line.get(nxt.equipment_id).x
-            # la gabbia deve essere ancora davanti: senza questa guardia, appena
-            # dopo un bite l'estremita' guida si trova esattamente sulla gabbia e
-            # una seconda passata sullo stesso stand morderebbe nello stesso istante
+            # the stand must still be ahead: without this guard, right after a bite
+            # the leading extremity sits exactly on the stand and a second pass on
+            # the same stand would bite at the very same instant
             ahead = direction * (x_stand - lead_x) > 1e-6
             if nxt.direction == direction and not reversing and ahead:
                 t_hit = solve_crossing(
@@ -272,16 +274,16 @@ def simulate_piece(
         if not candidates:
             if next_idx < len(passes):
                 nxt = passes[next_idx]
-                verso = "fwd" if nxt.direction == FWD else "rev"
+                heading = "fwd" if nxt.direction == FWD else "rev"
                 raise ModelError(
-                    f"{piece_id}: la passata {nxt.pass_no} su {nxt.equipment_id} non e' "
-                    f"raggiungibile in verso {verso}. A t={t:.1f} s il pezzo occupa "
-                    f"[{x_tail:.1f}, {x_head:.1f}] m e la gabbia sta a "
+                    f"{piece_id}: pass {nxt.pass_no} on {nxt.equipment_id} is not reachable "
+                    f"in direction {heading}. At t={t:.1f} s the piece spans "
+                    f"[{x_tail:.1f}, {x_head:.1f}] m and the stand is at "
                     f"{line.get(nxt.equipment_id).x:.1f} m."
                 )
             raise ModelError(
-                f"{piece_id}: il pezzo si e' fermato a x={x_head:.1f} m senza eventi "
-                "successivi. Manca un comando di velocita' in coda al percorso."
+                f"{piece_id}: the piece stopped at x={x_head:.1f} m with no further events. "
+                "A speed command is missing at the end of the route."
             )
 
         t_next, action, payload = min(candidates, key=lambda c: (c[0], c[1]))
@@ -331,8 +333,8 @@ def simulate_piece(
                     "bite",
                     eq.id,
                     eq.x,
-                    f"passata {rp.pass_no}: {rp.h_in:.1f} -> {rp.h_out:.1f} mm, "
-                    f"lambda {rp.elongation:.3f}, v_usc {rp.v_exit:.2f} m/s",
+                    f"pass {rp.pass_no}: {rp.h_in:.1f} -> {rp.h_out:.1f} mm, "
+                    f"lambda {rp.elongation:.3f}, v_exit {rp.v_exit:.2f} m/s",
                 )
             )
             if rp.zoom_pct:
@@ -357,7 +359,7 @@ def simulate_piece(
             lam /= rp.elongation
             occupancy.append(Occupancy(rp.equipment_id, rp.pass_no, t_in, t))
             events.append(
-                SimEvent(t, "tail_out", rp.equipment_id, x_stand, f"passata {rp.pass_no}")
+                SimEvent(t, "tail_out", rp.equipment_id, x_stand, f"pass {rp.pass_no}")
             )
             if not engaged:
                 if deferred is not None:
@@ -374,7 +376,7 @@ def simulate_piece(
                             "speed_change",
                             pending.section_id,
                             x_head,
-                            f"{pending.v_target:.2f} m/s (differito al disingaggio)",
+                            f"{pending.v_target:.2f} m/s (deferred to disengagement)",
                         )
                     )
                 if next_idx < len(passes) and passes[next_idx].direction != direction:
@@ -383,7 +385,7 @@ def simulate_piece(
                     braking = False
                     zoom_factor = 1.0
                     accel = line.get(rp.equipment_id).accel
-                    # al tail-out l'estremita' trascinata e' esattamente sulla gabbia
+                    # at tail-out the trailing extremity sits exactly on the stand
                     stop_stand_x = x_stand
                     stop_stand_id = rp.equipment_id
                     stop_pass_no = nxt.pass_no
@@ -395,9 +397,9 @@ def simulate_piece(
                             "reverse_start",
                             rp.equipment_id,
                             x_stand,
-                            f"sgombero richiesto {stop_clearance:.1f} m"
+                            f"clearance requested {stop_clearance:.1f} m"
                             if stop_clearance
-                            else "arresto alla minima distanza di frenata",
+                            else "stopping at the shortest braking distance",
                         )
                     )
                     if v_lead <= _V_EPS and stop_clearance <= 1e-9:
@@ -413,7 +415,7 @@ def simulate_piece(
                 continue
             if trig.rel_pct:
                 zoom_factor *= 1.0 + trig.rel_pct / 100.0
-                detail = f"zoom {trig.rel_pct:+.1f}% su testa virtuale"
+                detail = f"zoom {trig.rel_pct:+.1f}% on the virtual head"
                 kind = "zoom"
             else:
                 nominal_target = trig.v_target
@@ -425,11 +427,11 @@ def simulate_piece(
             continue
 
         if action == "finish":
-            events.append(SimEvent(t, "coiling_end", "", x_finish, "coda al coiler"))
+            events.append(SimEvent(t, "coiling_end", "", x_finish, "tail at the coiler"))
             done = True
             continue
 
-        raise ModelError(f"azione sconosciuta: {action}")
+        raise ModelError(f"unknown action: {action}")
 
     head_virtual = head
     if x_coiler is not None:
@@ -437,7 +439,7 @@ def simulate_piece(
         tail_phys = tail.clamp_max(x_coiler)
         t_coil = head.crossing_times(x_coiler, direction=FWD)
         if t_coil:
-            events.append(SimEvent(t_coil[0], "coiling_start", "", x_coiler, "presa al mandrino"))
+            events.append(SimEvent(t_coil[0], "coiling_start", "", x_coiler, "gripped by mandrel"))
     else:
         head_phys = head
         tail_phys = tail
@@ -446,8 +448,8 @@ def simulate_piece(
     length_geo = product.final_length
     if abs(length_kin - length_geo) > max(0.01 * length_geo, 0.05):
         warnings.append(
-            f"lunghezza cinematica {length_kin:.1f} m contro {length_geo:.1f} m geometrici: "
-            "bilancio di massa non conservato"
+            f"kinematic length {length_kin:.1f} m against {length_geo:.1f} m geometric: "
+            "mass balance is not conserved"
         )
 
     events.sort(key=lambda e: e.t)
@@ -468,10 +470,10 @@ def simulate_piece(
 
 
 def simulate_case(case: Case) -> list[PieceResult]:
-    """Simula la sequenza di pezzi definita nelle impostazioni.
+    """Simulate the sequence of pieces defined in the settings.
 
-    In modalita' open-loop i pezzi sono indipendenti: ogni prodotto viene
-    simulato una sola volta e le copie sono traslate nel tempo.
+    In open-loop mode the pieces are independent: every product is simulated
+    once and the copies are shifted in time.
     """
     pacing = case.settings.pacing
     cache: dict[str, PieceResult] = {}

@@ -1,4 +1,4 @@
-"""Verifiche del motore cinematico su casi con soluzione analitica nota."""
+"""Checks of the kinematic engine against cases with a known analytic solution."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from hsmpace.core.kinematics import (
 )
 
 
-def test_segmento_uniformemente_accelerato():
+def test_uniformly_accelerated_segment():
     seg = Segment(t0=2.0, t1=6.0, x0=10.0, v0=3.0, a=2.0)
     # x(6) = 10 + 3*4 + 0.5*2*16 = 38
     assert seg.x_at(6.0) == 38.0
@@ -21,21 +21,21 @@ def test_segmento_uniformemente_accelerato():
     assert seg.x1 == 38.0
 
 
-def test_crossing_prende_la_prima_radice_utile():
-    # x(t) = 0 + 10 t - 0.5 * 2 * t^2, tocca 25 salendo a t=5 (vertice)
+def test_crossing_takes_the_first_useful_root():
+    # x(t) = 0 + 10 t - 0.5 * 2 * t^2, reaches 21 on the way up at t = 3
     t = solve_crossing(0.0, 0.0, 10.0, -2.0, 21.0, 0.0, 20.0)
     assert t is not None and math.isclose(t, 3.0, abs_tol=1e-9)
 
 
-def test_crossing_filtra_il_verso():
-    # parabola che sale e ridiscende: il passaggio per x=16 avviene due volte
-    salita = solve_crossing(0.0, 0.0, 10.0, -2.0, 16.0, 0.0, 20.0, direction=1)
-    discesa = solve_crossing(0.0, 0.0, 10.0, -2.0, 16.0, 0.0, 20.0, direction=-1)
-    assert math.isclose(salita, 2.0, abs_tol=1e-9)
-    assert math.isclose(discesa, 8.0, abs_tol=1e-9)
+def test_crossing_filters_the_direction():
+    # a parabola going up and back down crosses x=16 twice
+    going_up = solve_crossing(0.0, 0.0, 10.0, -2.0, 16.0, 0.0, 20.0, direction=1)
+    coming_down = solve_crossing(0.0, 0.0, 10.0, -2.0, 16.0, 0.0, 20.0, direction=-1)
+    assert math.isclose(going_up, 2.0, abs_tol=1e-9)
+    assert math.isclose(coming_down, 8.0, abs_tol=1e-9)
 
 
-def test_traiettoria_continua_e_valutabile():
+def test_trajectory_is_continuous_and_evaluable():
     traj = Trajectory(
         [
             Segment(0.0, 4.0, 0.0, 0.0, 1.0),
@@ -47,7 +47,7 @@ def test_traiettoria_continua_e_valutabile():
     assert traj.v_at(2.0) == 2.0
 
 
-def test_clamp_al_coiler_blocca_la_testa():
+def test_clamping_at_the_coiler_pins_the_head():
     traj = Trajectory([Segment(0.0, 10.0, 0.0, 5.0, 0.0)])
     clamped = traj.clamp_max(20.0)
     assert math.isclose(clamped.x_at(4.0), 20.0)
@@ -55,19 +55,19 @@ def test_clamp_al_coiler_blocca_la_testa():
     assert math.isclose(clamped.x_at(3.0), 15.0)
 
 
-def test_differenza_di_traiettorie_e_quadratica_a_tratti():
+def test_difference_of_trajectories_is_piecewise_quadratic():
     a = Trajectory([Segment(0.0, 10.0, 100.0, 2.0, 0.0)])
     b = Trajectory([Segment(0.0, 10.0, 0.0, 0.0, 2.0)])
     gap = subtract(a, b, 0.0, 10.0)
-    # gap(t) = 100 + 2t - t^2, minimo agli estremi: a t=10 vale 20
+    # gap(t) = 100 + 2t - t^2, minimum at the far end: at t=10 it is 20
     t_min, value = gap.minimum()
     assert math.isclose(t_min, 10.0, abs_tol=1e-9)
     assert math.isclose(value, 20.0, abs_tol=1e-9)
     assert math.isclose(gap.value_at(0.0), 100.0)
 
 
-def test_prima_discesa_sotto_soglia_e_esatta():
-    # gap(t) = 50 - 5t, scende sotto 20 esattamente a t = 6
+def test_first_drop_below_threshold_is_exact():
+    # gap(t) = 50 - 5t drops below 20 exactly at t = 6
     a = Trajectory([Segment(0.0, 20.0, 50.0, 0.0, 0.0)])
     b = Trajectory([Segment(0.0, 20.0, 0.0, 5.0, 0.0)])
     gap = subtract(a, b, 0.0, 20.0)
@@ -75,21 +75,21 @@ def test_prima_discesa_sotto_soglia_e_esatta():
     assert t is not None and math.isclose(t, 6.0, abs_tol=1e-9)
 
 
-def test_minimo_nel_vertice_della_parabola():
+def test_minimum_at_the_vertex_of_the_parabola():
     piece = QuadPiece(t0=0.0, t1=10.0, c0=10.0, c1=-4.0, c2=0.5)
     t, value = piece.minimum()
     assert math.isclose(t, 4.0, abs_tol=1e-9)
     assert math.isclose(value, 2.0, abs_tol=1e-9)
 
 
-def test_polyline_non_suddivide_i_tratti_rettilinei():
+def test_polyline_does_not_subdivide_straight_stretches():
     traj = Trajectory([Segment(0.0, 100.0, 0.0, 1.0, 0.0)])
     ts, xs = traj.polyline()
     assert len(ts) == 2
     assert xs == [0.0, 100.0]
 
 
-def test_shift_trasla_solo_il_tempo():
+def test_shift_moves_time_only():
     traj = Trajectory([Segment(0.0, 5.0, 3.0, 2.0, 0.0)])
     moved = traj.shift(100.0)
     assert moved.t_start == 100.0

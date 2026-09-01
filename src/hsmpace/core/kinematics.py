@@ -1,14 +1,14 @@
-"""Motore cinematico a segmenti analitici.
+"""Analytic segment kinematic engine.
 
-Ogni tratto di moto e' uniformemente accelerato:
+Every stretch of motion is uniformly accelerated:
 
     x(t) = x0 + v0 * (t - t0) + 0.5 * a * (t - t0)**2
 
-Le traiettorie sono quindi esatte e rappresentate da poche decine di segmenti
-invece che da centinaia di migliaia di campioni. La differenza fra due
-traiettorie e' una funzione quadratica a tratti, per cui gli istanti in cui il
-gap fra due pezzi tocca una soglia si trovano risolvendo equazioni di secondo
-grado, senza campionamento e senza errore di integrazione.
+Trajectories are therefore exact and represented by a few dozen segments rather
+than hundreds of thousands of samples. The difference between two trajectories
+is a piecewise quadratic function, so the instants at which the gap between two
+pieces touches a threshold are found by solving quadratic equations, with no
+sampling and no integration error.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ EPS_X = 1e-9
 
 @dataclass(frozen=True)
 class Segment:
-    """Tratto di moto uniformemente accelerato valido su [t0, t1]."""
+    """Uniformly accelerated stretch of motion valid on [t0, t1]."""
 
     t0: float
     t1: float
@@ -60,13 +60,13 @@ def solve_crossing(
     t_to: float,
     direction: int = 0,
 ) -> float | None:
-    """Primo istante in [t_from, t_to] in cui x(t) raggiunge ``target``.
+    """First instant in [t_from, t_to] at which x(t) reaches ``target``.
 
-    ``direction`` filtra il verso di attraversamento: +1 accetta solo passaggi
-    con velocita' positiva, -1 solo con velocita' negativa, 0 accetta entrambi.
-    Restituisce ``None`` se l'attraversamento non avviene nella finestra.
+    ``direction`` filters the sense of the crossing: +1 accepts only crossings
+    with positive velocity, -1 only with negative velocity, 0 accepts both.
+    Returns ``None`` when the crossing does not happen inside the window.
     """
-    # x(tau) - target = 0 con tau = t - seg_t0
+    # x(tau) - target = 0 with tau = t - seg_t0
     c = x0 - target
     b = v0
     a2 = 0.5 * a
@@ -102,10 +102,10 @@ def solve_crossing(
 
 
 class Trajectory:
-    """Sequenza contigua di segmenti.
+    """Contiguous sequence of segments.
 
-    La posizione e' continua fra segmenti consecutivi; la velocita' puo' essere
-    discontinua, cosa fisicamente corretta ai bite e ai tail-out.
+    Position is continuous between consecutive segments; velocity may be
+    discontinuous, which is physically correct at bites and tail-outs.
     """
 
     __slots__ = ("segments",)
@@ -121,7 +121,7 @@ class Trajectory:
 
     def append(self, seg: Segment) -> None:
         if seg.t1 < seg.t0 - EPS_T:
-            raise ValueError("segmento con durata negativa")
+            raise ValueError("segment with negative duration")
         if seg.duration <= EPS_T and self.segments:
             return
         self.segments.append(seg)
@@ -165,7 +165,7 @@ class Trajectory:
         )
 
     def clamp_max(self, x_max: float) -> "Trajectory":
-        """Blocca la traiettoria a ``x_max`` (presa della testa all'avvolgitore)."""
+        """Pin the trajectory at ``x_max`` (head gripped by the coiler)."""
         out: list[Segment] = []
         clamped = False
         for s in self.segments:
@@ -200,8 +200,8 @@ class Trajectory:
         return Trajectory(out)
 
     def polyline(self, curve_points: int = 8) -> tuple[list[float], list[float]]:
-        """Vertici per il disegno: i tratti a velocita' costante sono esatti con
-        due punti, quelli accelerati vengono suddivisi per rendere la parabola."""
+        """Vertices for plotting: constant speed stretches are exact with two
+        points, accelerated ones are subdivided to render the parabola."""
         ts: list[float] = []
         xs: list[float] = []
         for s in self.segments:
@@ -215,7 +215,7 @@ class Trajectory:
         return ts, xs
 
     def crossing_times(self, target: float, direction: int = 0) -> list[float]:
-        """Istanti in cui la traiettoria attraversa ``target``."""
+        """Instants at which the trajectory crosses ``target``."""
         hits: list[float] = []
         for s in self.segments:
             t = solve_crossing(s.t0, s.x0, s.v0, s.a, target, s.t0, s.t1, direction)
@@ -226,7 +226,7 @@ class Trajectory:
 
 @dataclass(frozen=True)
 class QuadPiece:
-    """f(t) = c0 + c1*(t-t0) + c2*(t-t0)**2 valida su [t0, t1]."""
+    """f(t) = c0 + c1*(t-t0) + c2*(t-t0)**2 valid on [t0, t1]."""
 
     t0: float
     t1: float
@@ -239,7 +239,7 @@ class QuadPiece:
         return self.c0 + self.c1 * dt + self.c2 * dt * dt
 
     def minimum(self) -> tuple[float, float]:
-        """(istante, valore) del minimo sul tratto, vertice incluso."""
+        """(instant, value) of the minimum on the piece, vertex included."""
         best_t = self.t0
         best_v = self.value_at(self.t0)
         v_end = self.value_at(self.t1)
@@ -272,7 +272,7 @@ def _quad_roots(c0: float, c1: float, c2: float, t0: float, t1: float) -> list[f
 
 
 class PiecewiseQuad:
-    """Funzione quadratica a tratti, tipicamente il gap fra due pezzi."""
+    """Piecewise quadratic function, typically the gap between two pieces."""
 
     __slots__ = ("pieces",)
 
@@ -307,7 +307,7 @@ class PiecewiseQuad:
         return best_t, best_v
 
     def first_crossing_below(self, level: float) -> float | None:
-        """Primo istante in cui la funzione scende sotto ``level``."""
+        """First instant at which the function drops below ``level``."""
         for p in self.pieces:
             if p.value_at(p.t0) < level:
                 return p.t0
@@ -332,10 +332,10 @@ class PiecewiseQuad:
 
 
 def subtract(a: Trajectory, b: Trajectory, t_lo: float, t_hi: float) -> PiecewiseQuad:
-    """a(t) - b(t) come funzione quadratica a tratti su [t_lo, t_hi].
+    """a(t) - b(t) as a piecewise quadratic function on [t_lo, t_hi].
 
-    La finestra viene comunque ristretta all'intervallo in cui entrambe le
-    traiettorie sono definite: fuori da li' i pezzi non coesistono in linea.
+    The window is narrowed to the interval where both trajectories are defined:
+    outside of it the pieces do not coexist on the line.
     """
     t_lo = max(t_lo, a.t_start, b.t_start)
     t_hi = min(t_hi, a.t_end, b.t_end)

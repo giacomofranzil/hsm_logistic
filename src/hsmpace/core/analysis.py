@@ -1,8 +1,8 @@
-"""Analisi del gap fra pezzi consecutivi, in modalita' open-loop.
+"""Gap analysis between pieces, in open-loop mode.
 
-I pezzi seguono i profili nominali senza interblocchi: il tool riporta dove e
-quando il gap scende sotto soglia, non simula l'attesa che la logica di
-impianto imporrebbe.
+The pieces follow their nominal profiles with no interlocks: the tool reports
+where and when the gap drops below the threshold, it does not simulate the wait
+that the plant logic would impose.
 """
 
 from __future__ import annotations
@@ -47,14 +47,13 @@ class GapAnalysis:
 
 
 def gap_series(front: PieceResult, rear: PieceResult) -> PiecewiseQuad:
-    """Distanza fra la coda del pezzo che precede e la testa di quello che segue.
+    """Distance between the tail of the leading piece and the head of the next one.
 
-    L'estremita' posteriore di un pezzo e' ``min(testa, coda)`` e quella
-    anteriore ``max(testa, coda)``. Poiche' la testa materiale resta sempre
-    l'estremita' geometricamente piu' a valle, anche durante le passate
-    inverse, le due espressioni si riducono rispettivamente alla coda del pezzo
-    davanti e alla testa di quello dietro. L'invariante e' verificato da
-    ``check_extremities``.
+    The rear extremity of a piece is ``min(head, tail)`` and the front one
+    ``max(head, tail)``. Since the material head always remains the extremity
+    furthest downstream, including during reverse passes, those two expressions
+    reduce respectively to the tail of the piece in front and the head of the
+    one behind. The invariant is verified by ``check_extremities``.
     """
     t_lo = max(front.t_start, rear.t_start)
     t_hi = min(front.t_end, rear.t_end)
@@ -62,25 +61,25 @@ def gap_series(front: PieceResult, rear: PieceResult) -> PiecewiseQuad:
 
 
 def check_extremities(result: PieceResult) -> list[str]:
-    """Verifica che la testa resti a valle della coda per tutta la simulazione."""
+    """Check that the head stays downstream of the tail throughout the run."""
     problems: list[str] = []
     knots = {s.t0 for s in result.head.segments} | {s.t1 for s in result.head.segments}
     for t in sorted(knots):
         if result.head.x_at(t) < result.tail.x_at(t) - 1e-6:
             problems.append(
-                f"{result.piece_id}: a t={t:.2f} s la testa e' dietro la coda "
-                "(errore di modello, non condizione fisica)"
+                f"{result.piece_id}: at t={t:.2f} s the head is behind the tail "
+                "(model error, not a physical condition)"
             )
             break
     return problems
 
 
 def headway_at(front: PieceResult, rear: PieceResult, t_star: float) -> float | None:
-    """Distanza temporale al punto critico.
+    """Time distance at the critical point.
 
-    Tempo fra il passaggio della coda del pezzo davanti e l'arrivo della testa
-    di quello dietro nella stessa posizione: e' il "gap in secondi" con cui si
-    ragiona in reparto.
+    Time between the tail of the piece in front passing a position and the head
+    of the one behind reaching it: this is the "gap in seconds" people reason
+    with on the shop floor.
     """
     x_star = rear.head.x_at(t_star)
     crossings = [t for t in front.tail.crossing_times(x_star) if t <= t_star + 1e-9]
@@ -128,11 +127,10 @@ def analyse_sequence(
     gap_min: float,
     line: Line | None = None,
 ) -> list[GapAnalysis]:
-    """Analizza tutte le coppie adiacenti della sequenza.
+    """Analyse every pair of pieces that coexist on the line.
 
-    Con lo sbozzatore reversibile il vincolo puo' cadere fra il pezzo N e
-    N+2, quindi vengono valutate anche le coppie non adiacenti che si
-    sovrappongono nel tempo.
+    With a reversing roughing mill the binding constraint often falls between
+    piece N and N+2, so non adjacent pairs are evaluated as well.
     """
     out: list[GapAnalysis] = []
     for i in range(len(results)):
@@ -167,10 +165,10 @@ class MassBalanceCheck:
 
 
 def mass_balance(results: list[PieceResult]) -> list[MassBalanceCheck]:
-    """Confronto fra lunghezza integrata dalle velocita' e lunghezza geometrica.
+    """Compare the length integrated from the speeds with the geometric length.
 
-    Con il modello a catena di bilancio di massa le due coincidono per
-    costruzione: uno scostamento segnala un errore nell'input o nel modello.
+    With the mass flow chain model the two coincide by construction: a deviation
+    signals an error in the input or in the model.
     """
     seen: set[str] = set()
     out: list[MassBalanceCheck] = []

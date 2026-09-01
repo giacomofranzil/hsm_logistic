@@ -1,4 +1,4 @@
-"""Verifiche del layer Excel, del contratto JSON e dell'import del tracking."""
+"""Checks of the Excel layer, of the JSON contract and of the tracking import."""
 
 from __future__ import annotations
 
@@ -16,42 +16,42 @@ from hsmpace.example import example_case
 from hsmpace.io_excel import ValidationError, read_case, write_case, write_results
 
 
-def test_round_trip_excel_conserva_il_caso(tmp_path):
+def test_excel_round_trip_preserves_the_case(tmp_path):
     original = example_case()
-    path = write_case(original, tmp_path / "caso.xlsx")
-    letto = read_case(path)
+    path = write_case(original, tmp_path / "case.xlsx")
+    loaded = read_case(path)
 
-    assert letto.line.equipment == original.line.equipment
-    assert letto.line.sections == original.line.sections
-    assert letto.products == original.products
-    assert letto.settings == original.settings
+    assert loaded.line.equipment == original.line.equipment
+    assert loaded.line.sections == original.line.sections
+    assert loaded.products == original.products
+    assert loaded.settings == original.settings
 
 
-def test_template_vuoto_ha_i_fogli_e_le_intestazioni(tmp_path):
+def test_the_empty_template_has_the_sheets_and_headers(tmp_path):
     path = write_case(example_case(), tmp_path / "template.xlsx", include_data=False)
     wb = load_workbook(path)
-    assert {"Guida", "Info", "Layout", "Sections", "Products", "PassSchedule", "Simulation"} <= set(
+    assert {"Guide", "Info", "Layout", "Sections", "Products", "PassSchedule", "Simulation"} <= set(
         wb.sheetnames
     )
     assert wb["Layout"]["A1"].value == "equipment_id"
     assert wb["Sections"]["H1"].value == "d1_m"
-    assert wb["Layout"].max_row == 1, "il template non deve contenere dati"
+    assert wb["Layout"].max_row == 1, "the template must contain no data"
 
 
-def test_round_trip_json_conserva_il_caso():
+def test_json_round_trip_preserves_the_case():
     original = example_case()
     payload = json.loads(json.dumps(case_to_dict(original)))
-    letto = case_from_dict(payload)
+    loaded = case_from_dict(payload)
 
-    assert letto.line.equipment == original.line.equipment
-    assert letto.products == original.products
-    assert letto.settings == original.settings
+    assert loaded.line.equipment == original.line.equipment
+    assert loaded.products == original.products
+    assert loaded.settings == original.settings
 
 
-def test_errori_di_parsing_indicano_foglio_e_cella(tmp_path):
-    path = write_case(example_case(), tmp_path / "rotto.xlsx")
+def test_parsing_errors_point_at_sheet_and_cell(tmp_path):
+    path = write_case(example_case(), tmp_path / "broken.xlsx")
     wb = load_workbook(path)
-    wb["Layout"]["C5"] = "venticinque"
+    wb["Layout"]["C5"] = "twenty five"
     wb.save(path)
 
     with pytest.raises(ValidationError) as exc:
@@ -59,24 +59,24 @@ def test_errori_di_parsing_indicano_foglio_e_cella(tmp_path):
     issue = exc.value.issues[0]
     assert issue.sheet == "Layout"
     assert issue.cell == "C5"
-    assert "non e' un numero" in issue.message
+    assert "is not a number" in issue.message
 
 
-def test_errori_di_modello_risalgono_alla_riga_della_passata(tmp_path):
-    path = write_case(example_case(), tmp_path / "rotto2.xlsx")
+def test_model_errors_trace_back_to_the_pass_row(tmp_path):
+    path = write_case(example_case(), tmp_path / "broken2.xlsx")
     wb = load_workbook(path)
-    wb["PassSchedule"]["F4"] = 200.0  # h_out maggiore di h_in
+    wb["PassSchedule"]["F4"] = 200.0  # h_out larger than h_in
     wb.save(path)
 
     with pytest.raises(ValidationError) as exc:
         read_case(path)
-    riduzione = [i for i in exc.value.issues if "riduzione non valida" in i.message]
-    assert riduzione and riduzione[0].sheet == "PassSchedule"
-    assert riduzione[0].cell == "B4"
+    reduction = [i for i in exc.value.issues if "invalid reduction" in i.message]
+    assert reduction and reduction[0].sheet == "PassSchedule"
+    assert reduction[0].cell == "B4"
 
 
-def test_schema_version_non_supportata_viene_rifiutata(tmp_path):
-    path = write_case(example_case(), tmp_path / "vecchio.xlsx")
+def test_an_unsupported_schema_version_is_rejected(tmp_path):
+    path = write_case(example_case(), tmp_path / "old.xlsx")
     wb = load_workbook(path)
     wb["Info"]["B2"] = "0"
     wb.save(path)
@@ -85,17 +85,30 @@ def test_schema_version_non_supportata_viene_rifiutata(tmp_path):
         read_case(path)
 
 
-def test_evento_di_sezione_oltre_la_lunghezza_viene_rifiutato(tmp_path):
-    path = write_case(example_case(), tmp_path / "sezione.xlsx")
+def test_a_section_event_beyond_the_length_is_rejected(tmp_path):
+    path = write_case(example_case(), tmp_path / "section.xlsx")
     wb = load_workbook(path)
     wb["Sections"]["H4"] = 999.0
     wb.save(path)
 
-    with pytest.raises(ValidationError, match="oltre la lunghezza della sezione"):
+    with pytest.raises(ValidationError, match="beyond the section length"):
         read_case(path)
 
 
-def test_scrittura_dei_risultati(tmp_path):
+def test_an_older_workbook_without_optional_columns_still_loads(tmp_path):
+    """Columns added after the first schema version must not break existing files."""
+    path = write_case(example_case(), tmp_path / "older.xlsx")
+    wb = load_workbook(path)
+    ws = wb["PassSchedule"]
+    header = [c.value for c in ws[1]]
+    ws.delete_cols(header.index("reversing_clearance_m") + 1)
+    wb.save(path)
+
+    loaded = read_case(path)
+    assert all(p.reversing_clearance == 0.0 for p in loaded.products[0].passes)
+
+
+def test_writing_the_results(tmp_path):
     case, deviations = harmonise_tandem_speeds(example_case())
     base = base_results(case)
     results = sequence(case, base, case.settings.pacing)
@@ -105,20 +118,20 @@ def test_scrittura_dei_risultati(tmp_path):
 
     path = write_results(tmp_path / "out.xlsx", case, results, analyses, deviations, curve, best)
     wb = load_workbook(path)
-    assert {"Riepilogo", "Eventi", "Occupazione", "Gap", "PacingCurve", "BilancioMassa"} <= set(
+    assert {"Summary", "Events", "Occupancy", "Gap", "PacingCurve", "MassBalance"} <= set(
         wb.sheetnames
     )
-    assert wb["Eventi"].max_row > 10
+    assert wb["Events"].max_row > 10
 
 
-def test_report_json_contiene_i_segmenti_e_gli_esiti():
+def test_the_json_report_carries_segments_and_outcomes():
     case, deviations = harmonise_tandem_speeds(example_case())
     base = base_results(case)
     results = sequence(case, base, case.settings.pacing)
     analyses = analyse_sequence(results, case.settings.gap_min, case.line)
 
     report = report_to_dict(case, results, analyses, deviations)
-    json.dumps(report)  # deve essere serializzabile
+    json.dumps(report)  # must be serialisable
 
     assert report["pieces"][0]["head_segments"][0]["t0_s"] == 0.0
     assert report["pieces"][0]["length_kinematic_m"] == pytest.approx(
@@ -127,26 +140,26 @@ def test_report_json_contiene_i_segmenti_e_gli_esiti():
     assert report["gaps"][0]["ok"] is True
 
 
-def test_import_tracking_csv():
-    righe = [
+def test_tracking_csv_import():
+    rows = [
         "piece_id,time_s,head_m,tail_m",
         "A1,0.0,0.0,-10.5",
         "A1,1.0,1.2,-9.3",
         "A2,0.0,0.0,-10.5",
     ]
-    serie = parse_tracking(righe)
-    assert len(serie) == 2
-    prima = next(s for s in serie if s.piece_id == "A1")
-    assert prima.t == [0.0, 1.0]
-    assert prima.head == [0.0, 1.2]
-    assert prima.shift(10.0).t == [10.0, 11.0]
+    series = parse_tracking(rows)
+    assert len(series) == 2
+    first = next(s for s in series if s.piece_id == "A1")
+    assert first.t == [0.0, 1.0]
+    assert first.head == [0.0, 1.2]
+    assert first.shift(10.0).t == [10.0, 11.0]
 
 
-def test_tracking_senza_colonna_coda():
-    serie = parse_tracking(["piece_id,time_s,head_m", "A1,0.0,5.0"])
-    assert serie[0].tail == [5.0]
+def test_tracking_without_the_tail_column():
+    series = parse_tracking(["piece_id,time_s,head_m", "A1,0.0,5.0"])
+    assert series[0].tail == [5.0]
 
 
-def test_tracking_con_colonne_mancanti():
-    with pytest.raises(ValueError, match="colonne mancanti"):
-        parse_tracking(["piece,tempo", "A1,0"])
+def test_tracking_with_missing_columns():
+    with pytest.raises(ValueError, match="missing columns"):
+        parse_tracking(["piece,time", "A1,0"])

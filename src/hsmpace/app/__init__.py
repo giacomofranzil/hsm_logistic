@@ -1,1 +1,1 @@
-"""Interfaccia web. Si avvia con `hsmpace app` oppure `streamlit run`."""
+"""Web interface. Started with `hsmpace app` or with `streamlit run`."""

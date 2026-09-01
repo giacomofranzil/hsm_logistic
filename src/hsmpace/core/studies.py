@@ -1,9 +1,9 @@
-"""Studi sul pacing: curva gap-vs-pacing, pacing minimo, robustezza.
+"""Pacing studies: gap versus pacing curve, minimum pacing, robustness.
 
-In modalita' open-loop i pezzi sono disaccoppiati: ogni prodotto si simula una
-volta sola e le copie si ottengono traslando la traiettoria nel tempo. Questo
-rende trascurabile il costo di scandire centinaia di valori di pacing o di
-lanciare migliaia di run Monte Carlo.
+In open-loop mode the pieces are decoupled: every product is simulated once and
+the copies are obtained by shifting the trajectories in time. This makes it
+negligible to scan hundreds of pacing values or to run thousands of Monte Carlo
+draws.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from .simulate import PieceResult, shift_result, simulate_piece
 
 
 def base_results(case: Case) -> dict[str, PieceResult]:
-    """Una simulazione per prodotto, con rilascio a t = 0."""
+    """One simulation per product, released at t = 0."""
     out: dict[str, PieceResult] = {}
     for product_id in dict.fromkeys(case.piece_products):
         out[product_id] = simulate_piece(case, case.product(product_id), 0.0, product_id)
@@ -72,11 +72,11 @@ def gap_vs_pacing(
     base: dict[str, PieceResult] | None = None,
     pacings: list[float] | None = None,
 ) -> list[PacingPoint]:
-    """Gap minimo della sequenza al variare del pacing.
+    """Minimum gap of the sequence as a function of the pacing.
 
-    E' il grafico piu' utile del tool: il pacing minimo ammissibile si legge
-    dal punto in cui la curva incrocia la soglia, e la distanza dalla soglia e'
-    il margine con cui si sta lavorando.
+    This is the most useful chart of the tool: the minimum feasible pacing is
+    read where the curve crosses the threshold, and the distance from the
+    threshold is the margin being worked with.
     """
     base = base or base_results(case)
     if pacings is None:
@@ -99,11 +99,11 @@ def min_feasible_pacing(
     curve: list[PacingPoint] | None = None,
     tolerance: float = 0.1,
 ) -> PacingPoint | None:
-    """Pacing minimo oltre il quale la sequenza resta sempre ammissibile.
+    """Smallest pacing beyond which the sequence always stays feasible.
 
-    Con le passate reversibili il gap minimo non e' monotono nel pacing, per
-    cui non si applica una bisezione cieca: si scandisce la curva, si prende
-    l'ultimo punto non ammissibile e si raffina l'intervallo successivo.
+    With reverse passes the minimum gap is not monotonic in the pacing, so a
+    blind bisection does not apply: the curve is scanned, the last infeasible
+    point is taken and the interval right after it is refined.
     """
     base = base or base_results(case)
     curve = curve or gap_vs_pacing(case, base)
@@ -162,10 +162,11 @@ class MonteCarloResult:
 
 
 def perturb_case(case: Case, rng: random.Random) -> Case:
-    """Perturbazione delle velocita' di passata e dei tempi morti.
+    """Perturb pass speeds and dead times.
 
-    Le velocita' sono perturbate prima del bilancio di massa, cosi' nel tandem
-    conta la sola perturbazione della gabbia master e la schedule resta fisica.
+    Speeds are perturbed before the mass flow balance, so that in the tandem
+    only the perturbation of the master stand matters and the schedule stays
+    physical.
     """
     tol = case.settings.mc_speed_tol_pct / 100.0
     sigma = case.settings.mc_delay_sigma
@@ -190,10 +191,10 @@ def monte_carlo(
     runs: int | None = None,
     seed: int | None = None,
 ) -> MonteCarloResult:
-    """Probabilita' di violazione del gap con velocita' e tempi morti dispersi.
+    """Probability of violating the gap with dispersed speeds and dead times.
 
-    Ogni pezzo riceve la sua perturbazione indipendente e un jitter sull'istante
-    di rilascio: il pacing nominale non e' mai rispettato al secondo.
+    Every piece gets its own independent perturbation and a jitter on the
+    release instant: the nominal pacing is never met to the second.
     """
     settings = case.settings
     pacing = settings.pacing if pacing is None else pacing
@@ -215,7 +216,7 @@ def monte_carlo(
                 )
                 results.append(res)
             analyses = analyse_sequence(results, settings.gap_min, case.line)
-        except Exception:  # input estremi generati dal campionamento
+        except Exception:  # extreme inputs produced by the sampling
             errors += 1
             continue
 

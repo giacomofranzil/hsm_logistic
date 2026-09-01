@@ -1,18 +1,18 @@
-"""Import del tracking reale per il confronto simulato vs misurato.
+"""Import of measured tracking for the simulated versus measured comparison.
 
-Formato CSV minimo, deliberatamente povero perche' sia facile da produrre da
-un export IBA PDA, da un trend HMI o da una query sul database di Livello 2:
+A minimal CSV format, deliberately poor so that it is easy to produce from an
+IBA PDA export, an HMI trend or a query on the Level 2 database:
 
     piece_id,time_s,head_m,tail_m
     A1234,0.00,0.0,-10.5
     A1234,0.50,0.6,-9.9
 
-* ``piece_id``  identificativo del pezzo, una serie per ogni valore distinto
-* ``time_s``    tempo in secondi, crescente, origine libera
-* ``head_m``    posizione della testa lungo la linea, in metri
-* ``tail_m``    posizione della coda; colonna facoltativa
+* ``piece_id``  piece identifier, one series per distinct value
+* ``time_s``    time in seconds, increasing, arbitrary origin
+* ``head_m``    head position along the line, in metres
+* ``tail_m``    tail position; optional column
 
-Le posizioni devono essere riferite alla stessa origine del layout.
+Positions must refer to the same origin as the layout.
 """
 
 from __future__ import annotations
@@ -47,8 +47,8 @@ def parse_tracking(lines: Iterable[str]) -> list[TrackingSeries]:
     missing = [name for name in required if name not in fields]
     if missing:
         raise ValueError(
-            "CSV di tracking: colonne mancanti " + ", ".join(missing) +
-            ". Attese: piece_id, time_s, head_m, tail_m (facoltativa)."
+            "tracking CSV: missing columns " + ", ".join(missing) +
+            ". Expected: piece_id, time_s, head_m, tail_m (optional)."
         )
 
     series: dict[str, TrackingSeries] = {}
@@ -58,7 +58,7 @@ def parse_tracking(lines: Iterable[str]) -> list[TrackingSeries]:
             t = float(str(row[fields["time_s"]]).replace(",", "."))
             head = float(str(row[fields["head_m"]]).replace(",", "."))
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"CSV di tracking, riga {row_no}: valore non numerico") from exc
+            raise ValueError(f"tracking CSV, row {row_no}: non numeric value") from exc
         tail = head
         if "tail_m" in fields and row.get(fields["tail_m"]) not in (None, ""):
             tail = float(str(row[fields["tail_m"]]).replace(",", "."))

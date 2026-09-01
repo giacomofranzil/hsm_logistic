@@ -1,4 +1,4 @@
-"""Grafici Plotly. Nessun modulo del core importa questo package."""
+"""Plotly charts. No core module imports this package."""
 
 from .figures import (
     gantt_figure,

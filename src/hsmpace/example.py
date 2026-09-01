@@ -1,9 +1,9 @@
-"""Caso di esempio: Hot Strip Mill convenzionale.
+"""Example case: conventional Hot Strip Mill.
 
-Layout con sbozzatore a due gabbie reversibili con edger, tavolo di
-trasferimento, cesoia, finitore a sette gabbie e avvolgitore. I numeri sono
-plausibili ma inventati: servono a far girare il tool e a mostrare il formato,
-non descrivono un impianto reale.
+Layout with a two stand reversing roughing mill with edgers, transfer table,
+crop shear, seven stand finishing mill and downcoiler. The numbers are
+plausible but invented: they serve to run the tool and to show the format, they
+do not describe a real plant.
 """
 
 from __future__ import annotations
@@ -22,14 +22,14 @@ from .core.model import (
 )
 
 _EQUIPMENT = [
-    Equipment("FURN", "start", 0.0, accel=0.8, label="Uscita forno"),
-    Equipment("DS1", "marker", 8.0, label="Descagliatore primario"),
+    Equipment("FURN", "start", 0.0, accel=0.8, label="Furnace exit"),
+    Equipment("DS1", "marker", 8.0, label="Primary descaler"),
     Equipment("E1", "marker", 22.0, label="Edger E1"),
-    Equipment("R1", "stand", 25.0, accel=1.0, label="Sbozzatore R1"),
+    Equipment("R1", "stand", 25.0, accel=1.0, label="Roughing stand R1"),
     Equipment("E2", "marker", 57.0, label="Edger E2"),
-    Equipment("R2", "stand", 60.0, accel=1.0, label="Sbozzatore R2"),
-    Equipment("SHR", "marker", 175.0, label="Cesoia crop"),
-    Equipment("DS2", "marker", 182.0, label="Descagliatore finitore"),
+    Equipment("R2", "stand", 60.0, accel=1.0, label="Roughing stand R2"),
+    Equipment("SHR", "marker", 175.0, label="Crop shear"),
+    Equipment("DS2", "marker", 182.0, label="Finishing descaler"),
     Equipment("F1", "stand", 190.0, accel=1.5, group="FM", label="F1"),
     Equipment("F2", "stand", 195.5, accel=1.5, group="FM", label="F2"),
     Equipment("F3", "stand", 201.0, accel=1.5, group="FM", label="F3"),
@@ -37,7 +37,7 @@ _EQUIPMENT = [
     Equipment("F5", "stand", 212.0, accel=1.5, group="FM", label="F5"),
     Equipment("F6", "stand", 217.5, accel=1.5, group="FM", label="F6"),
     Equipment("F7", "stand", 223.0, accel=1.5, group="FM", label="F7"),
-    Equipment("DC1", "coiler", 330.0, accel=1.5, label="Avvolgitore 1"),
+    Equipment("DC1", "coiler", 330.0, accel=1.5, label="Downcoiler 1"),
 ]
 
 _SECTIONS = [
@@ -45,27 +45,27 @@ _SECTIONS = [
         "S1",
         x_start=0.0,
         length=25.0,
-        label="Forno - R1",
+        label="Furnace to R1",
         events=(
             SpeedEvent("S1-1", "S1", x_trigger=0.0, v_target=1.2, direction=FWD),
         ),
     ),
-    Section("S2", x_start=25.0, length=35.0, label="R1 - R2"),
+    Section("S2", x_start=25.0, length=35.0, label="R1 to R2"),
     Section(
         "S3",
         x_start=60.0,
         length=115.0,
-        label="Tavolo di trasferimento",
+        label="Transfer table",
         events=(
             SpeedEvent("S3-1", "S3", x_trigger=65.0, v_target=5.0, direction=FWD),
             SpeedEvent("S3-2", "S3", x_trigger=155.0, v_target=1.0, direction=FWD),
         ),
     ),
-    Section("S4", x_start=175.0, length=15.0, label="Cesoia - F1"),
-    Section("S5", x_start=190.0, length=140.0, label="Finitore - avvolgitore"),
+    Section("S4", x_start=175.0, length=15.0, label="Shear to F1"),
+    Section("S5", x_start=190.0, length=140.0, label="Finishing mill to coiler"),
 ]
 
-# (pass_no, stand, verso, h_in, h_out, w_in, w_out, v_exit, reversing_delay, sgombero)
+# (pass_no, stand, direction, h_in, h_out, w_in, w_out, v_exit, reversing_delay, clearance)
 _PASSES = [
     (1, "R1", FWD, 220.0, 175.0, 1250.0, 1255.0, 2.50, 0.0, 0.0),
     (2, "R1", REV, 175.0, 135.0, 1255.0, 1260.0, 3.00, 6.0, 5.0),
@@ -101,9 +101,9 @@ def example_case() -> Case:
                 reversing_clearance=clearance,
                 master=(stand == "F7"),
                 zoom_pct=8.0 if stand == "F7" else 0.0,
-                # 130 m dopo F7 cadono oltre l'avvolgitore, che sta a 107 m:
-                # il trigger usa percio' la testa virtuale, cioe' lo zoom parte
-                # dopo qualche avvolgimento, come nel modello offline
+                # 130 m past F7 fall beyond the coiler, which sits at 107 m, so the
+                # trigger uses the virtual head: the zoom starts after a few wraps,
+                # exactly as in the offline model
                 zoom_trigger=130.0 if stand == "F7" else 0.0,
             )
         )
@@ -137,7 +137,7 @@ def example_case() -> Case:
         settings=settings,
         info={
             "schema_version": "1",
-            "mill_name": "HSM di esempio",
-            "notes": "Dati inventati a scopo dimostrativo",
+            "mill_name": "Example HSM",
+            "notes": "Invented data, for demonstration only",
         },
     )

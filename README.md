@@ -1,135 +1,136 @@
 # hsmpace
 
-Diagramma spazio-tempo e analisi del pacing per un **Hot Strip Mill**.
+Space-time diagram and pacing analysis for a **Hot Strip Mill**.
 
-Il tool disegna la posizione di testa e coda dei laminandi lungo la linea, verifica che fra la coda di
-un pezzo e la testa di quello successivo resti sempre un gap sufficiente, e determina la cadenza minima
-con cui i pezzi possono entrare nel processo.
+The tool draws the head and tail position of the pieces travelling along the line, checks that a
+sufficient gap always remains between the tail of one piece and the head of the next, and determines
+the minimum cadence at which pieces can enter the process.
 
-![diagramma](docs/img/diagramma.png)
+![diagram](docs/img/diagramma.png)
 
-## Cosa fa
+## What it does
 
-* **Diagramma spazio-tempo**: posizione sull'asse orizzontale come il layout d'impianto, tempo
-  sull'asse verticale crescente verso il basso. Ogni pezzo e' una banda fra testa e coda, quindi la
-  collisione si legge come contatto fra bande invece che come incrocio di quattro linee.
-* **Gap fra pezzi**, in metri e in secondi, con il punto critico localizzato per istante, posizione e
-  sezione della linea. Vengono confrontate tutte le coppie che coesistono in linea, non solo quelle
-  adiacenti: con lo sbozzatore reversibile il vincolo cade spesso fra il pezzo N e N+2.
-* **Curva del gap minimo in funzione del pacing**, da cui si legge direttamente la cadenza minima
-  ammissibile e il margine con cui si sta lavorando.
+* **Space-time diagram**: position on the horizontal axis, like the plant layout, and time on the
+  vertical axis increasing downwards. Every piece is a band between head and tail, so a collision
+  reads as two bands touching rather than as four lines crossing.
+* **Gap between pieces**, in metres and in seconds, with the critical point located by instant,
+  position and section of the line. Every pair of pieces that coexists on the line is compared, not
+  only the adjacent ones: with a reversing roughing mill the constraint often falls between piece N
+  and N+2.
+* **Minimum gap versus pacing curve**, from which the minimum feasible cadence and the margin being
+  worked with are read directly.
 
-  ![curva del pacing](docs/img/pacing.png)
+  ![pacing curve](docs/img/pacing.png)
 
-* **Robustezza Monte Carlo**: probabilita' di violazione quando velocita' di passata, tempi morti e
-  istanti di rilascio hanno la dispersione che hanno in impianto.
-* **Occupazione delle gabbie** a diagramma di Gantt e registro completo degli eventi.
-* **Confronto con il tracking reale**, per validare il modello su dati misurati.
+* **Monte Carlo robustness**: probability of a violation once pass speeds, dead times and release
+  instants have the dispersion they have in the plant.
+* **Stand occupancy** as a Gantt chart and a full event log.
+* **Comparison against measured tracking**, to validate the model on real data.
 
-## Come si usa
+## How to use it
 
-### Interfaccia web
+### Web interface
 
 ```bash
 pip install -e .
-hsmpace app                      # apre http://127.0.0.1:8731
+hsmpace app                      # opens http://127.0.0.1:8731
 ```
 
-La stessa applicazione gira in due modi, e la scelta si puo' rimandare:
+The same application runs in two ways, and the choice can be deferred:
 
-* **in locale** sul PC di chi la usa, come processo che serve `127.0.0.1`: niente server, niente rete,
-  nessuna porta da aprire verso l'esterno;
-* **su un server d'ufficio**, con `hsmpace app --address 0.0.0.0`, e i colleghi che aprono un URL.
+* **locally** on the machine of whoever uses it, as a process serving `127.0.0.1`: no server, no
+  network, no port to open towards the outside;
+* **on an office server**, with `hsmpace app --address 0.0.0.0`, with colleagues opening a URL.
 
-Se sul PC non e' installabile Python, il pacchetto si impacchetta in un eseguibile singolo con
-PyInstaller e il comportamento resta identico.
+If Python cannot be installed on the machine, the package can be bundled into a single executable with
+PyInstaller and the behaviour stays identical.
 
-### Riga di comando
+### Command line
 
 ```bash
-hsmpace template input.xlsx                  # template vuoto da compilare
-hsmpace template esempio.xlsx --with-example # esempio gia' compilato
-hsmpace run input.xlsx --scan --monte-carlo 2000 --excel risultati.xlsx
-hsmpace to-json input.xlsx -o caso.json      # contratto per il Livello 2
-hsmpace run caso.json --json report.json
+hsmpace template input.xlsx                  # empty template to fill in
+hsmpace template example.xlsx --with-example # example already filled in
+hsmpace run input.xlsx --scan --monte-carlo 2000 --excel results.xlsx
+hsmpace to-json input.xlsx -o case.json      # contract for the Level 2 system
+hsmpace run case.json --json report.json
 ```
 
-`hsmpace run` restituisce 2 quando il gap minimo scende sotto la soglia, cosi' e' utilizzabile in
-script di verifica.
+`hsmpace run` returns 2 when the minimum gap drops below the threshold, so it can be used in checking
+scripts.
 
-## Il modello in due righe
+## The model in two lines
 
-**La testa comanda, la coda si deduce.** L'utente descrive i cambi di velocita' dell'estremita' che
-guida nel verso corrente; la velocita' dell'altra estremita' discende dal bilancio di massa delle
-gabbie ingaggiate fra le due:
+**The head commands, the tail follows.** The user describes the speed changes of the extremity leading
+in the current direction of travel; the speed of the other extremity follows from the mass flow balance
+of the engaged stands:
 
 ```
-v_trascinata = v_guida / prodotto dei lambda        lambda = (h_in * w_in) / (h_out * w_out)
+v_trailing = v_leading / product of the lambdas        lambda = (h_in * w_in) / (h_out * w_out)
 ```
 
-Le discontinuita' ai cambi di ingaggio sono fisicamente corrette: al **bite** resta continua
-l'estremita' trascinata, perche' il corpo del bar ha massa e non puo' cambiare velocita' di colpo,
-mentre quella guida salta di un fattore lambda perche' viene presa dai cilindri; al **tail-out**
-succede il contrario. Con una schedule coerente col bilancio di massa il salto al bite cade esatto
-sulla velocita' di passata e non genera rampe spurie.
+The discontinuities at engagement changes are physically correct: at **bite** the trailing extremity
+stays continuous, because the body of the bar has mass and cannot change speed instantly, while the
+leading one jumps by a factor lambda because it is gripped by the rolls; at **tail-out** the opposite
+happens. With a schedule consistent with the mass flow balance, the jump at bite lands exactly on the
+pass speed and produces no spurious ramps.
 
-Il moto e' rappresentato da **segmenti analitici** uniformemente accelerati: le traiettorie sono
-esatte, il grafico ha decine di punti invece di centinaia di migliaia, e l'istante in cui il gap tocca
-la soglia si trova risolvendo un'equazione di secondo grado invece di campionare. Una simulazione
-completa costa circa 0,4 ms, per cui la scansione del pacing e il Monte Carlo sono praticamente
-gratuiti. I dettagli sono in [docs/algorithm-spec.md](docs/algorithm-spec.md).
+Motion is represented by **analytic segments** of uniform acceleration: trajectories are exact, the
+chart has dozens of points instead of hundreds of thousands, and the instant at which the gap touches
+the threshold is found by solving a quadratic equation rather than by sampling. A complete simulation
+costs about 0.4 ms, which makes the pacing scan and the Monte Carlo essentially free. Details are in
+[docs/algorithm-spec.md](docs/algorithm-spec.md).
 
-Altre convenzioni che vale la pena conoscere:
+Other conventions worth knowing:
 
-* **Inversioni**: dopo il tail-out il pezzo prosegue fino a portare l'estremita' piu' vicina alla
-  gabbia alla quota di sgombero richiesta (`reversing_clearance_m`), li' si ferma, attende il
-  `reversing delay` e riparte nel verso opposto. Il delay comprende gia' screwdown e centraggio
-  sideguides; la quota va misurata dalla gabbia, quindi va aumentata se il vincolo vero e' l'edger.
-  Lasciandola vuota il pezzo si ferma appena la decelerazione lo consente, a `v^2/(2a)` dalla gabbia,
-  e se la quota richiesta e' piu' corta di quella distanza il tool lo segnala invece di fingere una
-  frenata impossibile. Non e' un dettaglio: sull'impianto di esempio, passando da 0 a 20 m di
-  sgombero, il pacing minimo sale da 105 a 149 secondi.
-* **Zoom rolling**: incremento percentuale di velocita' che parte quando la testa ha superato di una
-  distanza data l'ultima gabbia. Il trigger usa la **testa virtuale**, cioe' ignora il fatto che la
-  testa si ferma all'avvolgitore: se cade oltre l'avvolgitore lo zoom parte dopo qualche avvolgimento,
-  esattamente come nel modello offline.
-* **Avvolgitore**: alla presa la testa fisica si blocca e la lunghezza in linea decresce, mentre la
-  testa virtuale prosegue.
-* **Origine dell'asse**: al rilascio la testa e' sull'uscita forno e la coda sta una lunghezza bramma
-  piu' a monte, quindi le prime decine di metri di coda a valori negativi rappresentano la bramma
-  ancora in estrazione.
+* **Reversals**: after tail-out the piece keeps going until the extremity closest to the stand reaches
+  the requested clearance (`reversing_clearance_m`), stops there, waits for the `reversing delay` and
+  restarts in the opposite direction. The delay already includes screwdown and side guide centring;
+  the clearance is measured from the stand, so increase it if the real constraint is the edger.
+  Leaving it empty makes the piece stop as soon as the deceleration allows, at `v^2/(2a)` from the
+  stand, and if the requested clearance is shorter than that distance the tool reports it rather than
+  faking an impossible braking. This is not a detail: on the example mill, going from 0 to 20 m of
+  clearance takes the minimum pacing from 105 to 149 seconds.
+* **Zoom rolling**: a percentage speed increase starting when the head has travelled a given distance
+  past the last stand. The trigger uses the **virtual head**, that is it ignores the fact that the head
+  stops at the coiler: if it falls beyond the coiler the zoom starts after a few wraps, exactly as in
+  the offline model.
+* **Coiler**: on gripping, the physical head is pinned and the length on the line decreases, while the
+  virtual head carries on.
+* **Origin of the axis**: at release the head sits at the furnace exit and the tail one slab length
+  further upstream, so the first few tens of metres of tail at negative values represent the slab still
+  being extracted.
 
-## Il file di input
+## The input file
 
-Un `.xlsx` senza macro, letto in sola lettura: i risultati finiscono sempre in un file separato. Le
-unita' sono fissate nel template e non c'e' nessuna colonna unita' da compilare: **posizioni e
-lunghezze in m, spessori e larghezze in mm, velocita' in m/s, tempi in s, accelerazioni in m/s2**.
+An `.xlsx` without macros, read only: results always go to a separate file. Units are fixed in the
+template and there is no unit column to fill in: **positions and lengths in m, thicknesses and widths
+in mm, speeds in m/s, times in s, accelerations in m/s2**.
 
-| Foglio | Contenuto |
+| Sheet | Content |
 |---|---|
-| `Info` | `schema_version`, nome impianto, note |
-| `Layout` | apparecchiature con posizione, tipo (`start`, `stand`, `coiler`, `marker`), accelerazione d'asse, gruppo tandem |
-| `Sections` | sezioni della linea con fino a 7 cambi di velocita' ciascuna, dati come distanza dall'inizio sezione piu' velocita' |
-| `Products` | dimensioni bramma e dati prodotto |
-| `PassSchedule` | per passata: gabbia, verso, riduzione, larghezze, velocita', reversing delay, master del tandem, zoom |
-| `Simulation` | pacing, numero pezzi, gap minimo, parametri della scansione e del Monte Carlo |
+| `Info` | `schema_version`, mill name, notes |
+| `Layout` | equipment with position, kind (`start`, `stand`, `coiler`, `marker`), axis acceleration, tandem group |
+| `Sections` | line sections with up to 7 speed changes each, given as a distance from the section start plus a speed |
+| `Products` | slab dimensions and product data |
+| `PassSchedule` | per pass: stand, direction, reduction, widths, speed, reversing delay and clearance, tandem master, zoom |
+| `Simulation` | pacing, number of pieces, minimum gap, scan and Monte Carlo parameters |
 
-Le sezioni non devono coincidere con gli interassi fra le gabbie: si puo' spezzare una sezione fisica
-in sotto-sezioni in qualunque punto notevole. Un evento che scatterebbe mentre una passata e'
-ingaggiata viene **differito al disingaggio**, perche' in laminazione comanda il mill e non la via a
-rulli; mettendo `SI` in `during_pass` vale comunque.
+Sections need not match the spacing between stands: a physical section can be split into sub-sections
+at any notable point. An event that would fire while a pass is engaged is **deferred to
+disengagement**, because while rolling it is the mill that commands, not the roller table; putting
+`YES` in `during_pass` makes it apply anyway.
 
-Ogni errore nell'input viene riportato con foglio, cella e motivo:
+Every input error is reported with sheet, cell and reason:
 
 ```
-Input non valido (2 problemi):
-  - Layout!C5: x_m: 'venticinque' non e' un numero
-  - PassSchedule!B4: prodotto P1 passata 3: riduzione non valida (135.0 -> 200.0 mm)
+Invalid input (2 problems):
+  - Layout!C5: x_m: 'twenty five' is not a number
+  - PassSchedule!B4: product P1 pass 3: invalid reduction (135.0 -> 200.0 mm)
 ```
 
-## Confronto con il tracking reale
+## Comparison against measured tracking
 
-La scheda **Misure** accetta un CSV nel formato
+The **Measurements** tab accepts a CSV in the format
 
 ```
 piece_id,time_s,head_m,tail_m
@@ -137,53 +138,54 @@ A1234,0.00,0.0,-10.5
 A1234,0.50,0.6,-9.9
 ```
 
-con `tail_m` facoltativa e posizioni riferite alla stessa origine del layout. Le misure vengono
-sovrapposte al simulato, con uno sfasamento temporale regolabile per allineare gli istanti di partenza.
+with `tail_m` optional and positions referred to the same origin as the layout. The measurements are
+overlaid on the simulation, with an adjustable time shift to align the starting instants.
 
-## Cosa il tool non fa
+## What the tool does not do
 
-Scelte esplicite, non dimenticanze:
+Explicit choices, not oversights:
 
-* **nessun interblocco e nessun hold point**: i pezzi seguono i profili nominali e il tool riporta dove
-  il gap scende sotto soglia, senza fermare il pezzo che segue come farebbe la logica d'impianto;
-* **nessun coilbox** (rinviato: e' l'unico elemento che rende il pezzo puntiforme e scambia testa e coda);
-* slittamento sui rulli trascurato, jerk infinito, accelerazione uguale alla decelerazione;
-* nessun vincolo di velocita' legato a una finestra di posizione: si esprime con sezioni ed eventi;
-* nessun modello termico, di forza di laminazione o di allargamento;
-* cadenza del forno e ciclo dell'avvolgitore fuori perimetro, da valutare a posteriori.
+* **no interlocks and no hold points**: the pieces follow their nominal profiles and the tool reports
+  where the gap drops below the threshold, without stopping the piece behind as the plant logic would;
+* **no coilbox** (deferred: it is the only element that makes the piece point-like and swaps head and
+  tail);
+* roller slip neglected, infinite jerk, acceleration equal to deceleration;
+* no speed constraint tied to a position window: that is expressed with sections and events;
+* no thermal, roll force or spread model;
+* furnace cadence and coiler cycle out of scope, to be assessed separately.
 
-## Struttura del progetto
+## Project structure
 
 ```
 src/hsmpace/
-  core/        nucleo di calcolo in aritmetica pura, nessuna dipendenza esterna
-    kinematics.py   segmenti analitici, radici quadratiche, differenza fra traiettorie
-    model.py        layout, sezioni, eventi, pass schedule, validazione
-    simulate.py     simulatore a eventi
-    analysis.py     gap, estremi geometrici, bilancio di massa
-    studies.py      curva gap-vs-pacing, pacing minimo, Monte Carlo
-    contract.py     contratto JSON di ingresso e uscita
-    tracking.py     import del tracking misurato
-  io_excel/    lettura e scrittura Excel (openpyxl)
-  viz/         grafici (plotly)
-  app/         interfaccia web (streamlit)
-  cli.py       riga di comando
+  core/        calculation core in pure arithmetic, no external dependency
+    kinematics.py   analytic segments, quadratic roots, difference of trajectories
+    model.py        layout, sections, events, pass schedule, validation
+    simulate.py     event-driven simulator
+    analysis.py     gap, geometric extremities, mass balance
+    studies.py      gap versus pacing curve, minimum pacing, Monte Carlo
+    contract.py     JSON contract for input and output
+    tracking.py     import of measured tracking
+  io_excel/    Excel reading and writing (openpyxl)
+  viz/         charts (plotly)
+  app/         web interface (streamlit)
+  cli.py       command line
 ```
 
-Il package `core` non importa openpyxl, plotly ne' streamlit, non ha stato globale ed e' deterministico:
-e' pensato per essere riscritto in C++ o C# per il Livello 2 seguendo
-[docs/algorithm-spec.md](docs/algorithm-spec.md). Nel frattempo un Livello 2 puo' gia' invocare
-l'eseguibile passando un caso in JSON.
+The `core` package does not import openpyxl, plotly or streamlit, has no global state and is
+deterministic: it is meant to be rewritten in C++ or C# for the Level 2 system following
+[docs/algorithm-spec.md](docs/algorithm-spec.md). In the meantime a Level 2 system can already invoke
+the executable passing a case as JSON.
 
-## Sviluppo
+## Development
 
 ```bash
 pip install -e ".[dev]"
 pytest
 ```
 
-## Documenti
+## Documents
 
-* [docs/algorithm-spec.md](docs/algorithm-spec.md) - specifica dell'algoritmo per il porting
-* [docs/grill-review-hsm-pacing.md](docs/grill-review-hsm-pacing.md) - analisi critica del progetto,
-  punti aperti e decisioni prese
+* [docs/algorithm-spec.md](docs/algorithm-spec.md) - specification of the algorithm for the porting
+* [docs/grill-review-hsm-pacing.md](docs/grill-review-hsm-pacing.md) - critical review of the project,
+  open points and decisions taken

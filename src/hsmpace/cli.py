@@ -1,8 +1,8 @@
-"""Interfaccia a riga di comando.
+"""Command line interface.
 
-Oltre all'uso interattivo, i comandi ``to-json`` e ``run`` costituiscono il
-punto di aggancio per un Livello 2 scritto in altro linguaggio: si passa un
-caso in JSON e si riceve un report in JSON, senza dipendere da Excel.
+Beyond interactive use, the ``to-json`` and ``run`` commands are the hook for a
+Level 2 system written in another language: a case goes in as JSON and a report
+comes out as JSON, with no dependency on Excel.
 """
 
 from __future__ import annotations
@@ -33,8 +33,8 @@ def _load(path: str | None) -> "object":
 
 def _cmd_template(args: argparse.Namespace) -> int:
     path = write_case(example_case(), args.output, include_data=args.with_example)
-    kind = "l'esempio compilato" if args.with_example else "il template vuoto"
-    print(f"Scritto {kind}: {path}")
+    kind = "filled example" if args.with_example else "empty template"
+    print(f"Written the {kind}: {path}")
     return 0
 
 
@@ -43,7 +43,7 @@ def _cmd_to_json(args: argparse.Namespace) -> int:
     payload = json.dumps(case_to_dict(case), indent=2, ensure_ascii=False)
     if args.output:
         Path(args.output).write_text(payload, encoding="utf-8")
-        print(f"Scritto {args.output}")
+        print(f"Written {args.output}")
     else:
         print(payload)
     return 0
@@ -70,40 +70,40 @@ def _cmd_run(args: argparse.Namespace) -> int:
         Path(args.json).write_text(
             json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-        print(f"Report JSON scritto in {args.json}")
+        print(f"JSON report written to {args.json}")
 
     if args.excel:
         write_results(args.excel, case, results, analyses, deviations, curve, best, mc)
-        print(f"Risultati Excel scritti in {args.excel}")
+        print(f"Excel results written to {args.excel}")
 
-    print(f"Pacing simulato: {case.settings.pacing:.1f} s su {len(results)} pezzi")
+    print(f"Simulated pacing: {case.settings.pacing:.1f} s over {len(results)} pieces")
     if analyses:
         worst = min(analyses, key=lambda a: a.min_gap)
-        state = "ammissibile" if worst.ok else "VIOLAZIONE"
+        state = "feasible" if worst.ok else "VIOLATION"
         where = worst.critical
         print(
-            f"Gap minimo {worst.min_gap:.1f} m fra {worst.front_id} e {worst.rear_id} "
-            f"({state})"
+            f"Minimum gap {worst.min_gap:.1f} m between {worst.front_id} and "
+            f"{worst.rear_id} ({state})"
         )
         if where:
             print(
-                f"  punto critico a x={where.x:.1f} m, t={where.t:.1f} s"
-                + (f", sezione {where.section}" if where.section else "")
-                + (f", gap temporale {worst.headway:.1f} s" if worst.headway else "")
+                f"  critical point at x={where.x:.1f} m, t={where.t:.1f} s"
+                + (f", section {where.section}" if where.section else "")
+                + (f", time gap {worst.headway:.1f} s" if worst.headway else "")
             )
     else:
-        print("I pezzi non sono mai contemporaneamente in linea.")
+        print("The pieces are never on the line at the same time.")
 
     if best is not None:
         print(
-            f"Pacing minimo ammissibile: {best.pacing:.1f} s"
-            + (f" (vincolo in {best.section})" if best.section else "")
+            f"Minimum feasible pacing: {best.pacing:.1f} s"
+            + (f" (constraint in {best.section})" if best.section else "")
         )
     if mc is not None:
         print(
-            f"Monte Carlo su {mc.runs} run: {mc.violations} violazioni "
-            f"({100 * mc.violation_rate:.1f}%), gap medio {mc.mean:.1f} m, "
-            f"quinto percentile {mc.percentile(0.05):.1f} m"
+            f"Monte Carlo over {mc.runs} runs: {mc.violations} violations "
+            f"({100 * mc.violation_rate:.1f}%), mean gap {mc.mean:.1f} m, "
+            f"fifth percentile {mc.percentile(0.05):.1f} m"
         )
 
     if analyses and not min(analyses, key=lambda a: a.min_gap).ok:
@@ -134,36 +134,36 @@ def _cmd_app(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="hsmpace",
-        description="Diagramma spazio-tempo e analisi del pacing per Hot Strip Mill",
+        description="Space-time diagram and pacing analysis for a Hot Strip Mill",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("template", help="genera il workbook di input")
-    p.add_argument("output", help="percorso del file .xlsx da creare")
+    p = sub.add_parser("template", help="generate the input workbook")
+    p.add_argument("output", help="path of the .xlsx file to create")
     p.add_argument(
         "--with-example",
         action="store_true",
-        help="riempie il workbook con l'impianto di esempio",
+        help="fill the workbook with the example mill",
     )
     p.set_defaults(func=_cmd_template)
 
-    p = sub.add_parser("to-json", help="converte un input in JSON per il Livello 2")
-    p.add_argument("input", nargs="?", help="file .xlsx o .json (vuoto = esempio incluso)")
-    p.add_argument("-o", "--output", help="file JSON da scrivere")
+    p = sub.add_parser("to-json", help="convert an input into JSON for the Level 2 system")
+    p.add_argument("input", nargs="?", help=".xlsx or .json file (empty = built-in example)")
+    p.add_argument("-o", "--output", help="JSON file to write")
     p.set_defaults(func=_cmd_to_json)
 
-    p = sub.add_parser("run", help="simula e analizza il gap")
-    p.add_argument("input", nargs="?", help="file .xlsx o .json (vuoto = esempio incluso)")
-    p.add_argument("--pacing", type=float, help="sovrascrive il pacing del file")
-    p.add_argument("--scan", action="store_true", help="calcola la curva gap-vs-pacing")
+    p = sub.add_parser("run", help="simulate and analyse the gap")
+    p.add_argument("input", nargs="?", help=".xlsx or .json file (empty = built-in example)")
+    p.add_argument("--pacing", type=float, help="override the pacing from the file")
+    p.add_argument("--scan", action="store_true", help="compute the gap versus pacing curve")
     p.add_argument(
-        "--monte-carlo", type=int, metavar="N", help="esegue N run di robustezza"
+        "--monte-carlo", type=int, metavar="N", help="run N robustness draws"
     )
-    p.add_argument("--json", help="scrive il report in JSON")
-    p.add_argument("--excel", help="scrive i risultati in xlsx")
+    p.add_argument("--json", help="write the report as JSON")
+    p.add_argument("--excel", help="write the results as xlsx")
     p.set_defaults(func=_cmd_run)
 
-    p = sub.add_parser("app", help="avvia l'interfaccia web")
+    p = sub.add_parser("app", help="start the web interface")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p.add_argument("--address", default="127.0.0.1")
     p.set_defaults(func=_cmd_app)
@@ -175,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     except (FileNotFoundError, ValueError) as exc:
-        print(f"Errore: {exc}", file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
         return 1
 
 

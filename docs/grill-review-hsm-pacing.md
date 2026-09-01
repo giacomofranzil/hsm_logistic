@@ -1,645 +1,639 @@
-# Grill Review — Tool di pacing / diagramma spazio-tempo per Hot Strip Mill
+# Grill review — pacing tool / space-time diagram for a Hot Strip Mill
 
-Documento di interrogatorio critico sul progetto. Serve a farti una review finale prima di scrivere una
-riga di codice. Le domande marcate **[BLOCCANTE]** cambiano l'architettura: senza risposta non ha senso
-implementare. Quelle marcate **[DA DECIDERE]** cambiano solo funzionalita' o priorita'.
-
----
-
-## 0. Verdetto sintetico (prima delle domande)
-
-Tre affermazioni forti, da attaccare se non sei d'accordo:
-
-1. **Il linguaggio giusto e' Python.** Non per gusto, ma perche' il 90% del valore del tool sta in
-   lettura Excel, grafici interattivi e iterazione veloce sul modello. C++ e C# ti costano 3-5x di codice
-   per zero vantaggio: il carico computazionale reale di questo problema e' irrisorio (vedi §8). L'unica
-   ragione valida per C# e' un vincolo IT aziendale sul deployment (vedi Q6).
-
-2. **Non usare un integratore a passo fisso.** Il modello corretto e' un motore **a segmenti analitici**
-   (moto uniformemente accelerato a tratti) con **event detection** per radici di equazioni di 2° grado.
-   Motivo: la maggior parte degli eventi e' *guidata dalla posizione* (la testa arriva alla gabbia), non
-   dal tempo, e un dt fisso introduce un errore di tracking che a 20 m/s vale 20 mm/ms. Con i segmenti,
-   l'errore e' zero e il grafico ha decine di punti invece di centinaia di migliaia.
-
-3. **Il vero output non e' "si scontrano si/no", e' "quanto margine ho".** Su un impianto reale gli
-   interblocchi fermano il pezzo prima dell'urto: la collisione non avviene mai, si traduce in attesa e
-   in perdita di produttivita'. Se il tool dice solo "collisione" stai modellando uno scenario che la
-   L1/L2 impedisce per costruzione. Vedi Q2, e' la domanda piu' importante di tutte.
+Critical interrogation of the project. Its purpose is to support a final review before a single line of
+code is written. Questions marked **[BLOCKING]** change the architecture: implementing without an
+answer makes no sense. Those marked **[TO DECIDE]** only change scope or priority.
 
 ---
 
-## 1. Domande bloccanti
+## 0. Short verdict, ahead of the questions
 
-### Q1 [BLOCCANTE] — Perimetro dell'impianto e configurazione
-Il modello cambia parecchio a seconda di cosa sta dentro il confine.
+Three strong statements, to be attacked if you disagree:
 
-- Dove inizia l'asse spaziale: **estrazione dal forno**? Scivolo/roller table di uscita? Descaler primario?
-- Dove finisce: **avvolgitori**? Fine ROT? Uscita gabbia finitrice?
-- Sbozzatore: **una gabbia reversibile (R2)**? Due (R1 non reversibile + R2 reversibile)? Un tandem
-  di sbozzatura non reversibile? Edger accoppiati o indipendenti?
-- **Coilbox presente?** Se si', e' un evento topologico brutale: il bar viene avvolto testa-prima e
-  svolto coda-prima, quindi **testa e coda si scambiano**. Tutto il tracking a valle si inverte, e la
-  cesoia crop taglia quella che era la coda. Se il tool non lo gestisce, sbaglia sistematicamente sul
-  finitore.
-- Steckel o finitore tandem puro?
-- Quanti avvolgitori e c'e' uno **shifting/deviatore** che li seleziona?
+1. **The right language is Python.** Not out of taste, but because 90% of the value of this tool sits
+   in reading Excel, interactive charts and fast iteration on the model. C++ and C# cost 3 to 5 times
+   the code for no benefit: the actual computational load of this problem is negligible (see §8). The
+   only valid reason for C# is a corporate IT constraint on deployment (see Q6).
 
-### Q2 [BLOCCANTE] — Cosa fa il modello quando il gap si chiude
-Tre semantiche diverse, tre architetture diverse:
+2. **Do not use a fixed step integrator.** The correct model is an **analytic segment** engine
+   (piecewise uniformly accelerated motion) with **event detection** through the roots of quadratic
+   equations. The reason: most events are *position driven* (the head reaches the stand), not time
+   driven, and a fixed dt introduces a tracking error worth 20 mm/ms at 20 m/s. With segments the error
+   is zero and the chart has dozens of points instead of hundreds of thousands.
 
-- **(a) Open-loop / diagnostico**: i due pezzi seguono il loro profilo di velocita' nominale indipendente,
-  il tool disegna le curve e segnala dove `gap < gap_min` (eventualmente con sovrapposizione, quindi
-  "compenetrazione" fisicamente impossibile ma visivamente utile). Semplice, deterministico,
-  ottimo per dimensionare il pacing. Costo: basso.
-- **(b) Closed-loop / con interblocchi**: modelli i **hold point** (punti di attesa: davanti alla cesoia,
-  in testa alla via a rulli di trasferimento, prima del descaler F0) e la logica "il pezzo B non entra in
-  zona Z finche' A non l'ha liberata". Output = **ritardo indotto** e cadenza effettiva. Molto piu'
-  realistico e molto piu' vicino a cio' che vedi in impianto, ma richiede un layer di logica
-  supervisiva e la definizione delle zone di mutua esclusione. Costo: medio-alto.
-- **(c) Entrambi**: open-loop come modalita' di analisi, closed-loop come modalita' di simulazione.
-
-Domanda secca: **ti serve un disegnatore di diagrammi o un simulatore di impianto?** Se la risposta e'
-"voglio determinare il pacing ideale", sospetto fortemente che serva (c), perche' il pacing ideale e'
-quello per cui il ritardo indotto e' zero con un margine, non quello per cui il gap e' esattamente zero.
-
-### Q3 [BLOCCANTE] — Modalita' d'uso e obiettivo numerico
-- **Verifica**: dato un pacing T, dimmi se e' fattibile e con che margine minimo.
-- **Ottimizzazione**: trova il **minimo T fattibile** (bisezione sul pacing: ~20 simulazioni, costo
-  trascurabile) dato un `gap_min`.
-- **Robustezza**: dato T, quanto e' probabile la violazione se le velocita' hanno tolleranza ±x% e i
-  tempi morti (inversione, screwdown, cesoia, trasferimento coil) hanno dispersione? Questa e' Monte
-  Carlo, ~10^4 run in pochi secondi con il motore a segmenti.
-
-Quale di queste ti serve alla consegna, e quale e' "nice to have"? Attenzione: la (3) e' quella che in
-pratica evita i fermi, perche' il pacing teorico minimo e' sempre inapplicabile senza margine.
-
-### Q4 [BLOCCANTE] — Davvero solo 2 pezzi?
-Ti sfido su questo punto. Su un HSM con sbozzatore reversibile e coilbox, in linea ci sono tipicamente
-**3-4 pezzi contemporaneamente**: uno in finitura, uno sul trasferimento/coilbox, uno in sbozzatura,
-uno appena estratto dal forno. Il vincolo che determina il pacing spesso **non e'** tra il pezzo N e
-N+1, ma tra N e N+2 (esempio classico: R2 deve invertire e la sua corsa all'indietro impegna la zona
-dove sta arrivando il pezzo successivo, mentre il pezzo davanti occupa ancora il trasferimento).
-
-Il costo di generalizzare a **N pezzi** e' quasi nullo se lo si fa dal giorno 1 (lista di pezzi + check
-a coppie adiacenti), ed e' un refactoring doloroso se hardcodi 2 (nomi tipo `pieceA`/`pieceB` ovunque,
-grafici a 4 curve, criteri di gap binari). **Proposta: N generico, default di visualizzazione 2-3.**
-Sei d'accordo o hai una ragione per limitare a 2?
-
-### Q5 [BLOCCANTE] — Da dove arrivano le velocita'
-Questo determina il formato della scheda Excel della pass schedule.
-
-- Le velocita' sono date come **velocita' del nastro** (m/s all'uscita gabbia) o come **giri rulli
-  (rpm)**? Se rpm, serve il diametro rullo *usurato* e il **coefficiente di avanzamento / forward slip**
-  (tipicamente 2-8%): `v_uscita = pi*D*n*(1+f)`. Vuoi f come input per passata, come modello, o
-  costante?
-- Il bilancio di massa: la velocita' della gabbia *master* la dai tu e le altre discendono
-  (`v_out = v_in * (h_in*w_in)/(h_out*w_out)`), oppure dai tutte le velocita' e il tool **verifica** la
-  coerenza del bilancio di massa segnalando incongruenze? La seconda e' molto utile come sanity check
-  su schedule reali.
-- **Allargamento (spread)** in sbozzatura: lo trascuriamo (w costante), lo dai per passata, o vuoi un
-  modello (Sparling / Beese)? Se lo trascuri, sovrastimi l'allungamento di qualche punto percentuale.
-- Puoi esportare una **setup reale dal Livello 2** in Excel? Se si', il formato di input dovrebbe
-  assomigliare a quello, non a un formato inventato da me.
-
-### Q6 [BLOCCANTE] — Come lo lanciano i colleghi
-Questa domanda decide il linguaggio piu' di qualsiasi considerazione tecnica.
-
-- **Eseguibile standalone** (Python + PyInstaller, un `.exe` da copiare, niente installazioni, niente
-  admin) — la mia raccomandazione di default in ambiente industriale.
-- **Web app interna** (Streamlit/Dash su un server di ufficio, si apre da browser, zero installazioni
-  sui client, aggiornamenti centralizzati) — la migliore se avete un server e la rete lo consente.
-- **Add-in Excel** (xlwings): input e output restano dentro il foglio, il grafico anche. Massima
-  familiarita' per i colleghi, ma richiede Python installato o un add-in firmato, e ti lega alle
-  bizzarrie di Excel/COM.
-- **Script Python** eseguito da chi sa farlo (tu).
-- **C# / WinForms-WPF**: ha senso solo se la policy IT vieta di fatto Python e/o se il tool deve poi
-  girare dentro un ecosistema .NET esistente (HMI, tool di reparto gia' in C#).
-
-Domanda collaterale ma pesante: i PC dei colleghi sono su rete d'ufficio o su rete di **livello 2/3
-d'impianto** con restrizioni? Hanno diritti di admin? Un `.exe` non firmato passa l'antivirus aziendale?
-
-### Q7 [DA DECIDERE] — Hai dati reali per validare
-Il tool vale poco se nessuno crede ai suoi numeri. Se puoi esportare tracking reale (IBA PDA, trend
-HMI, log L2: posizioni testa/coda, velocita' gabbie, timestamp di bite/tail-out), la funzione
-**"sovrapponi simulato vs misurato"** e' il singolo feature che fa passare il tool da "giocattolo
-dell'ingegnere" a "strumento di reparto". Ce li hai? In che formato (CSV, dat IBA, database)?
+3. **The real output is not "do they collide, yes or no", it is "how much margin do I have".** In a
+   real plant the interlocks stop the piece before impact: the collision never happens, it turns into
+   waiting and lost throughput. If the tool only says "collision" you are modelling a scenario that L1
+   and L2 prevent by construction. See Q2, the most important question of all.
 
 ---
 
-## 2. Grilling sul modello cinematico
+## 1. Blocking questions
 
-Punti che nel testo iniziale non compaiono e che ti mordono in fase di implementazione.
+### Q1 [BLOCKING] — Plant scope and configuration
+The model changes considerably depending on what sits inside the boundary.
 
-1. **Testa e coda hanno velocita' diverse durante la passata.** Finche' il pezzo e' *dentro* la gabbia,
-   la coda avanza a `v_in` e la testa a `v_out = lambda * v_in`. Non puoi modellare "la posizione del
-   pezzo" e derivare gli estremi: devi **integrare testa e coda separatamente**, con la lunghezza come
-   variabile derivata. Il tuo punto (3) lo sfiora, ma la conseguenza pratica e' che il modello ha
-   almeno 2 gradi di liberta' per pezzo, non 1.
+- Where the space axis starts: **furnace extraction**? The discharge roller table? The primary descaler?
+- Where it ends: **the coilers**? The end of the run-out table? The finishing mill exit?
+- Roughing mill: **one reversing stand (R2)**? Two (non reversing R1 plus reversing R2)? A non reversing
+  roughing tandem? Attached or independent edgers?
+- **Is there a coilbox?** If so, it is a brutal topological event: the bar is coiled head first and
+  uncoiled tail first, so **head and tail swap**. All downstream tracking inverts, and the crop shear
+  cuts what used to be the tail. A tool that does not handle it is systematically wrong on the
+  finishing mill.
+- Steckel or plain tandem finishing mill?
+- How many coilers, and is there a **selector** choosing between them?
 
-2. **In tandem il pezzo e' in piu' gabbie insieme.** Con F1..F7 il nastro puo' essere ingaggiato da 7
-   gabbie simultaneamente: la velocita' della testa e' l'uscita dell'*ultima* gabbia ingaggiata, quella
-   della coda l'ingresso della *prima*. Ogni bite e ogni tail-out e' un evento discreto che cambia la
-   legge di moto. Il modello a "una gabbia per volta" **non funziona** sul finitore.
+### Q2 [BLOCKING] — What the model does when the gap closes
+Three different semantics, three different architectures:
 
-3. **Inversione: testa e coda materiali vs anteriore/posteriore geometrico.** Alla passata pari il
-   "muso" che avanza e' la coda materiale. Il criterio di collisione **non e'** `x_coda(A) - x_testa(B)`:
-   e' `min(x_testa_A, x_coda_A) - max(x_testa_B, x_coda_B)`. Se scrivi il check nel modo ingenuo,
-   durante le passate inverse il tool ti dira' che va tutto bene proprio nel momento di rischio massimo.
+- **(a) Open-loop / diagnostic**: the two pieces follow their independent nominal speed profiles, the
+  tool draws the curves and flags where `gap < gap_min` (possibly with overlap, that is a physically
+  impossible interpenetration which is nonetheless visually useful). Simple, deterministic, excellent
+  for sizing the pacing. Cost: low.
+- **(b) Closed-loop / with interlocks**: you model the **hold points** (waiting positions: ahead of the
+  shear, at the head of the transfer table, before the finishing descaler) and the logic "piece B does
+  not enter zone Z until A has cleared it". Output = **induced delay** and effective cadence. Far more
+  realistic and far closer to what you see in the plant, but it requires a supervisory logic layer and
+  the definition of the mutual exclusion zones. Cost: medium to high.
+- **(c) Both**: open-loop as an analysis mode, closed-loop as a simulation mode.
 
-4. **La testa si "ferma" all'avvolgitore.** Dopo la presa sul mandrino, `x_testa` resta costante mentre
-   la coda continua: la lunghezza in linea *diminuisce*. Se non lo gestisci, la testa del coil finisce a
-   1200 m su un impianto lungo 400 m e il grafico diventa illeggibile.
+Blunt question: **do you need a diagram drawer or a plant simulator?** If the answer is "I want to
+determine the ideal pacing", I strongly suspect you need (c), because the ideal pacing is the one for
+which the induced delay is zero with a margin, not the one for which the gap is exactly zero.
 
-5. **Lunghezze in gioco.** Bramma 8-12 m, bar 30-80 m, nastro fino a >1000 m: l'asse spazio deve
-   reggere il fatto che il pezzo e' piu' lungo dell'impianto. Conseguenza sul grafico: coda e testa non
-   stanno nella stessa scala visiva senza accorgimenti.
+### Q3 [BLOCKING] — Mode of use and numerical objective
+- **Verification**: given a pacing T, tell me whether it is feasible and with what minimum margin.
+- **Optimisation**: find the **smallest feasible T** (bisection on the pacing: about 20 simulations,
+  negligible cost) for a given `gap_min`.
+- **Robustness**: given T, how likely is a violation if speeds have a tolerance of +/-x% and the dead
+  times (reversal, screwdown, shear, coil transfer) are dispersed? This is Monte Carlo, about 10^4 runs
+  in a few seconds with a segment engine.
 
-6. **Zone di velocita' della via a rulli.** Fuori dalle gabbie il pezzo prende la velocita' della zona
-   rulli. Ma se il pezzo copre 3 zone con setpoint diversi, chi comanda? La zona con piu' massa? La
-   prima? Serve una regola esplicita, altrimenti il modello e' ambiguo proprio nel trasferimento, dove
-   si gioca gran parte del pacing.
+Which of these do you need at delivery, and which is nice to have? Careful: (3) is the one that in
+practice avoids the stoppages, because the theoretical minimum pacing is always inapplicable without a
+margin.
 
-7. **Slittamento sui rulli.** Bramma pesante e fredda su rulli: la velocita' reale non e' quella dei
-   rulli. Vuoi un fattore di slittamento per zona, o lo consideri trascurabile e lo assorbi nei margini?
+### Q4 [BLOCKING] — Really only 2 pieces?
+I challenge you on this. On an HSM with a reversing roughing mill and a coilbox there are typically
+**3 to 4 pieces on the line at once**: one in the finishing mill, one on the transfer table or in the
+coilbox, one in roughing, one just extracted from the furnace. The constraint that sets the pacing is
+often **not** between piece N and N+1 but between N and N+2 (classic example: R2 has to reverse and its
+backward stroke occupies the zone the next piece is entering, while the piece in front still occupies
+the transfer table).
 
-8. **Rampe: accelerazione e jerk.** Hai citato rampe vs scalini. Gli scalini sono comodi ma
-   sovrastimano la produttivita': i tempi di accelerazione dell'azionamento su una gabbia sbozzatrice
-   non sono trascurabili. Serve almeno `a_acc` e `a_dec` per asse (gabbia/zona), e va deciso se limitare
-   anche il jerk. Domanda: **le rampe le conosci per azionamento** o vanno stimate?
+The cost of generalising to **N pieces** is almost nil if done from day 1 (a list of pieces plus a
+pairwise check), and it is a painful refactoring if you hardcode 2 (names like `pieceA`/`pieceB`
+everywhere, four curve charts, binary gap criteria). **Proposal: generic N, default display 2 to 3.**
+Do you agree, or do you have a reason to limit it to 2?
 
-9. **Tempi morti dell'inversione.** L'inversione non e' istantanea: decelerazione a zero, cambio gap
-   (screwdown), eventuale posizionamento edger, riaccelerazione. Il tempo di screwdown si sovrappone
-   alla decelerazione o e' in serie? Su impianti reali questa differenza vale secondi per passata, cioe'
-   decine di secondi sul pacing.
+### Q5 [BLOCKING] — Where the speeds come from
+This determines the format of the pass schedule sheet.
 
-10. **Vincoli di velocita' posizione-dipendenti.** Il descaler richiede una velocita' massima di
-    descagliatura in una finestra spaziale. La cesoia crop richiede una velocita' di taglio a una
-    posizione fissa. Il modello deve supportare "in questo intervallo di x la velocita' e' vincolata",
-    che e' un evento posizione-guidato, non temporale.
+- Are speeds given as **strip speed** (m/s at the stand exit) or as **roll rpm**? If rpm, the *worn*
+  roll diameter is needed together with the **forward slip** coefficient (typically 2 to 8%):
+  `v_exit = pi*D*n*(1+f)`. Do you want f as a per pass input, as a model, or as a constant?
+- Mass flow balance: do you give the speed of the *master* stand and let the others follow
+  (`v_out = v_in * (h_in*w_in)/(h_out*w_out)`), or do you give all the speeds and let the tool **check**
+  the consistency of the mass balance and flag discrepancies? The second is very useful as a sanity
+  check on real schedules.
+- **Spread** in roughing: do we neglect it (constant w), do you give it per pass, or do you want a model
+  (Sparling / Beese)? Neglecting it overestimates the elongation by a few per cent.
+- Can you export a **real Level 2 setup** to Excel? If so, the input format should look like that one,
+  not like a format invented by me.
 
-11. **Cesoia: la lunghezza cambia in modo discontinuo.** Crop testa e crop coda accorciano il pezzo di
-    x00 mm istantaneamente. Se fai anche taglio a meta' (bramma doppia lunghezza / due coil da un
-    pezzo), nasce **un pezzo nuovo** a meta' simulazione: il tuo modello a 2 pezzi diventa a 3.
-    Lo vuoi supportare?
+### Q6 [BLOCKING] — How your colleagues will launch it
+This question decides the language more than any technical consideration.
 
-12. **Rolling accelerato (zoom rolling).** Sul finitore la velocita' viene rampata durante la
-    laminazione per tenere costante la FDT. Non e' un dettaglio: cambia il tempo di occupazione del
-    finitore e quindi il pacing. Lo modelliamo (rampa di F7 con relativi coefficienti) o assumiamo
-    velocita' costante di laminazione?
+- **Standalone executable** (Python plus PyInstaller, an `.exe` to copy, no installation, no admin
+  rights) — my default recommendation in an industrial environment.
+- **Internal web app** (Streamlit/Dash on an office server, opened from a browser, zero installation on
+  the clients, centralised updates) — the best option if you have a server and the network allows it.
+- **Excel add-in** (xlwings): input, output and chart all stay inside the sheet. Maximum familiarity for
+  your colleagues, but it requires Python installed or a signed add-in, and it ties you to the quirks
+  of Excel and COM.
+- **Python script** run by whoever knows how (you).
+- **C# / WinForms-WPF**: it only makes sense if the IT policy effectively forbids Python, or if the tool
+  later has to live inside an existing .NET ecosystem (HMI, department tools already in C#).
 
-13. **Termico.** Il tempo di attesa sul trasferimento non e' libero: e' vincolato dalla temperatura di
-    ingresso finitore. Un pacing "ottimo" che allunga l'attesa sul trasferimento puo' essere
-    inaccettabile termicamente. Un modello termico completo e' fuori scope, ma un **vincolo di tempo
-    massimo di permanenza per zona** costa poco ed evita risultati privi di senso. Lo vuoi?
+A side question with real weight: are your colleagues' PCs on the office network or on a **level 2/3
+plant network** with restrictions? Do they have admin rights? Does an unsigned `.exe` get past the
+corporate antivirus?
 
-14. **Vincoli a monte e a valle che spesso *sono* il collo di bottiglia**: cadenza massima di estrazione
-    dal forno (capacita' termica), e ciclo dell'avvolgitore (taglio, trasferimento coil, cambio
-    mandrino) che per coil corti/spessi puo' limitare piu' del laminatoio. Se il tool ignora questi
-    due, produce un pacing "ideale" che l'impianto non riesce a servire.
-
----
-
-## 3. Criteri di collisione e di conflitto: piu' sottili di "gap > 0"
-
-- Il gap minimo **non e' un numero unico**: e' diverso per zona (davanti alla cesoia, in ingresso
-  descaler, sul trasferimento). Va tabellato per zona.
-- Esistono conflitti **senza contatto**: due pezzi non possono stare nella stessa apparecchiatura
-  (descaler, cesoia, gabbia) neanche con gap adeguato; l'avvolgitore e' occupato finche' non finisce il
-  trasferimento coil; la zona di corsa del reversibile deve essere libera *in tutta l'escursione* della
-  passata, non solo dove sta il pezzo in quell'istante. Questo e' un **check di occupazione di risorse**,
-  concettualmente diverso dal check di distanza.
-- Il gap che interessa gli operatori spesso e' **temporale** ("quanti secondi tra coda di A e testa di B
-  al punto X"), non spaziale. Meglio calcolare e mostrare entrambi.
-- Un check numerico deve rilevare anche i casi patologici: sorpasso (fisicamente impossibile, ma
-  sintomo di input errato), lunghezza negativa, violazione della conservazione della massa
-  (`L*h*w` costante entro tolleranza). Questi devono essere **errori espliciti**, non grafici strani.
-
----
-
-## 4. Input Excel: dove ti si rompe in mano
-
-- **Quante schede e chi le mantiene?** Proposta minima: `Layout` (posizioni assolute e tipo di ogni
-  apparecchiatura, lunghezza zone, velocita' zone, accelerazioni), `PassSchedule` (per passata: gabbia,
-  h_in, h_out, larghezza, velocita' o rpm, verso, tempi morti), `Prodotto` (dimensioni bramma, acciaio,
-  numero coil), `Simulazione` (pacing, gap_min per zona, opzioni). Ti torna la suddivisione o ne hai
-  gia' una in uso?
-- **Chi e' la fonte di verita'?** Se il tool scrive risultati dentro lo stesso file, i colleghi ti
-  manderanno file con risultati vecchi e input nuovi. Consiglio: **input read-only + output in file
-  separato** (o foglio chiaramente marcato e rigenerato).
-- **Versioning dello schema**: metti un campo `schema_version` in una cella fin dal giorno 1. Senza,
-  al terzo cambio formato hai 15 varianti in giro per l'ufficio e nessun modo di distinguerle.
-- **Validazione feroce all'ingresso**: celle vuote, unita' di misura miste (mm vs m, m/s vs m/min vs
-  rpm), posizioni non monotone, somma delle riduzioni incoerente con lo spessore finale, virgola vs
-  punto decimale, celle testo che sembrano numeri, righe nascoste, celle unite. Il tool deve rifiutare
-  un input ambiguo con un messaggio che indica **foglio, cella e motivo**, non lanciare un traceback.
-- **Unita' di misura**: le fisso io nel template (SI: m, m/s, s) o accetto una colonna unita'? Il
-  template rigido e' molto piu' robusto; la colonna unita' e' piu' comoda. Preferenza?
-- `.xlsx` puro, o dovete usare `.xlsm` con macro esistenti?
+### Q7 [TO DECIDE] — Do you have real data for validation
+The tool is worth little if nobody believes its numbers. If you can export real tracking (IBA PDA, HMI
+trends, L2 logs: head and tail positions, stand speeds, bite and tail-out timestamps), the
+**"overlay simulated versus measured"** feature is the single one that takes the tool from "the
+engineer's toy" to "a department instrument". Do you have it? In what format (CSV, IBA dat, database)?
 
 ---
 
-## 5. Il grafico: cosa deve mostrare davvero
+## 2. Grilling the kinematic model
 
-- Convenzione classica del **diagramma orario ferroviario**: tempo sull'asse X, posizione sull'asse Y,
-  perche' le pendenze si leggono come velocita'. Tu hai scritto "spazio e tempo": confermi tempo su X?
-- Per ogni pezzo **due curve** (testa e coda) con la banda di area riempita tra le due = ingombro del
-  pezzo. La collisione diventa visivamente "le due bande si toccano", molto piu' leggibile di 4 linee.
-- Linee orizzontali per le apparecchiature (forno, descaler, R1, R2, cesoia, F1..F7, avvolgitori).
-- Grafico secondario: **gap(t)** con la soglia `gap_min` e i punti di violazione evidenziati.
-- Utile in piu': Gantt di occupazione delle apparecchiature, e tabella eventi (bite, tail-out,
-  inversioni, tagli) con timestamp.
-- Interattivo (zoom, hover con valori) o statico da incollare in un report? Se serve incollarlo in
-  PowerPoint, serve anche export PNG/PDF a risoluzione decente.
+Points that do not appear in the initial description and that will bite during implementation.
+
+1. **Head and tail have different speeds during a pass.** While the piece is *inside* the stand the tail
+   advances at `v_in` and the head at `v_out = lambda * v_in`. You cannot model "the position of the
+   piece" and derive the extremities from it: you must **integrate head and tail separately**, with
+   length as a derived variable. Your point (3) brushes against this, but the practical consequence is
+   that the model has at least 2 degrees of freedom per piece, not 1.
+
+2. **In a tandem the piece is in several stands at once.** With F1 to F7 the strip can be gripped by
+   seven stands simultaneously: the head speed is the exit of the *last* engaged stand, the tail speed
+   the entry of the *first*. Every bite and every tail-out is a discrete event that rewrites the law of
+   motion. A "one stand at a time" model **does not work** on the finishing mill.
+
+3. **Reversal: material head and tail versus geometric front and rear.** On an even numbered pass the
+   "nose" that advances is the material tail. The collision criterion is **not**
+   `x_tail(A) - x_head(B)`: it is `min(x_head_A, x_tail_A) - max(x_head_B, x_tail_B)`. If you write the
+   check the naive way, during reverse passes the tool will tell you everything is fine exactly at the
+   moment of maximum risk.
+
+4. **The head "stops" at the coiler.** After the mandrel grips it, `x_head` stays constant while the
+   tail keeps going: the length on the line *decreases*. Without handling this, the head of the coil
+   ends up at 1200 m on a 400 m long plant and the chart becomes unreadable.
+
+5. **The lengths involved.** Slab 8 to 12 m, transfer bar 30 to 80 m, strip beyond 1000 m: the space
+   axis must cope with the piece being longer than the plant. Consequence on the chart: head and tail do
+   not fit the same visual scale without care.
+
+6. **Roller table speed zones.** Outside the stands the piece takes the speed of the roller zone. But if
+   the piece spans 3 zones with different setpoints, which one commands? The one holding most of the
+   mass? The first? An explicit rule is needed, otherwise the model is ambiguous exactly on the transfer
+   table, where much of the pacing is played out.
+
+7. **Slip on the rollers.** A heavy, cold slab on rollers: the real speed is not the roller speed. Do you
+   want a slip factor per zone, or do you consider it negligible and absorb it in the margins?
+
+8. **Ramps: acceleration and jerk.** You mentioned ramps versus steps. Steps are convenient but they
+   overestimate throughput: the acceleration times of the drive on a roughing stand are not negligible.
+   At least `a_acc` and `a_dec` per axis are needed, and it must be decided whether jerk is limited too.
+   Question: **do you know the ramps per drive**, or do they have to be estimated?
+
+9. **Dead time of the reversal.** A reversal is not instantaneous: deceleration to zero, gap change
+   (screwdown), possible edger positioning, re-acceleration. Does the screwdown time overlap the
+   deceleration or is it in series? On real plants this difference is worth seconds per pass, that is
+   tens of seconds on the pacing.
+
+10. **Position dependent speed constraints.** The descaler requires a maximum descaling speed inside a
+    spatial window. The crop shear requires a cutting speed at a fixed position. The model must support
+    "in this interval of x the speed is constrained", which is a position driven event, not a time
+    driven one.
+
+11. **Shear: the length changes discontinuously.** Head and tail crop shorten the piece by a few hundred
+    millimetres instantly. If you also do a dividing cut (double length slab, two coils from one piece),
+    **a new piece is born** halfway through the simulation: your 2 piece model becomes a 3 piece one. Do
+    you want to support that?
+
+12. **Accelerated rolling (zoom rolling).** On the finishing mill the speed is ramped during rolling to
+    keep the finishing temperature constant. This is not a detail: it changes the occupancy time of the
+    finishing mill and therefore the pacing. Do we model it (a ramp on F7 with its coefficients) or do we
+    assume a constant rolling speed?
+
+13. **Thermal.** The waiting time on the transfer table is not free: it is constrained by the finishing
+    mill entry temperature. An "optimal" pacing that lengthens the wait on the transfer table can be
+    thermally unacceptable. A full thermal model is out of scope, but a **maximum dwell time per zone**
+    costs little and prevents meaningless results. Do you want it?
+
+14. **Upstream and downstream constraints that often *are* the bottleneck**: maximum furnace extraction
+    rate (heating capacity), and the coiler cycle (cut, coil transfer, mandrel change) which for short
+    or thick coils can be more limiting than the mill. If the tool ignores these two, it produces an
+    "ideal" pacing the plant cannot serve.
 
 ---
 
-## 6. Architettura proposta
+## 3. Collision and conflict criteria: subtler than "gap > 0"
+
+- The minimum gap **is not a single number**: it differs by zone (ahead of the shear, at the descaler
+  entry, on the transfer table). It has to be tabulated per zone.
+- There are conflicts **without contact**: two pieces cannot be in the same equipment (descaler, shear,
+  stand) even with an adequate gap; the coiler is busy until the coil transfer completes; the travel
+  zone of the reversing mill must be clear *over its whole stroke*, not only where the piece happens to
+  be at that instant. This is a **resource occupancy check**, conceptually different from a distance
+  check.
+- The gap operators care about is often **temporal** ("how many seconds between the tail of A and the
+  head of B at point X"), not spatial. Better to compute and show both.
+- A numerical check must also catch the pathological cases: overtaking (physically impossible, but a
+  symptom of wrong input), negative length, violation of mass conservation (`L*h*w` constant within
+  tolerance). These must be **explicit errors**, not strange looking charts.
+
+---
+
+## 4. Excel input: where it breaks in your hands
+
+- **How many sheets and who maintains them?** Minimum proposal: `Layout` (absolute positions and type of
+  each piece of equipment, zone lengths, zone speeds, accelerations), `PassSchedule` (per pass: stand,
+  h_in, h_out, width, speed or rpm, direction, dead times), `Product` (slab dimensions, steel grade),
+  `Simulation` (pacing, gap_min per zone, options). Does the split work for you, or do you already have
+  one in use?
+- **Who is the source of truth?** If the tool writes results into the same file, your colleagues will
+  send you files with old results and new inputs. Recommendation: **read-only input plus output in a
+  separate file** (or a clearly marked, regenerated sheet).
+- **Schema versioning**: put a `schema_version` field in a cell from day 1. Without it, by the third
+  format change you will have 15 variants floating around the office and no way to tell them apart.
+- **Fierce validation on input**: empty cells, mixed units (mm versus m, m/s versus m/min versus rpm),
+  non monotonic positions, reductions inconsistent with the final thickness, comma versus dot decimal
+  separator, text cells that look like numbers, hidden rows, merged cells. The tool must reject an
+  ambiguous input with a message stating **sheet, cell and reason**, not throw a traceback.
+- **Units**: do I fix them in the template (SI: m, m/s, s) or do I accept a unit column? A rigid template
+  is far more robust; a unit column is more convenient. Preference?
+- Plain `.xlsx`, or do you need `.xlsm` with existing macros?
+
+---
+
+## 5. The chart: what it really has to show
+
+- The classic **railway timetable** convention: time on the X axis, position on the Y axis, because
+  slopes then read as speeds. You wrote "space and time": do you confirm time on X?
+- For each piece **two curves** (head and tail) with the area between them filled, giving the envelope
+  of the piece. A collision then becomes visually "the two bands touch", far more readable than four
+  lines.
+- Horizontal lines for the equipment (furnace, descaler, R1, R2, shear, F1 to F7, coilers).
+- Secondary chart: **gap(t)** with the `gap_min` threshold and the violation points highlighted.
+- Useful extras: a Gantt chart of equipment occupancy, and a table of events (bite, tail-out, reversals,
+  cuts) with timestamps.
+- Interactive (zoom, hover with values) or static to paste into a report? If it has to go into
+  PowerPoint, a decent resolution PNG/PDF export is needed too.
+
+---
+
+## 6. Proposed architecture
 
 ```mermaid
 flowchart TD
-  XL["Excel: Layout, PassSchedule, Prodotto, Simulazione"] --> P["Parser + validazione + unita'"]
-  P --> M["Modello: linea, apparecchiature, zone, vincoli"]
-  M --> K["Motore cinematico a segmenti (moto unif. accelerato a tratti)"]
-  K --> EV["Event detection: bite, tail-out, inversioni, hold point, tagli"]
+  XL["Excel: Layout, PassSchedule, Product, Simulation"] --> P["Parser + validation + units"]
+  P --> M["Model: line, equipment, zones, constraints"]
+  M --> K["Segment kinematic engine (piecewise uniform acceleration)"]
+  K --> EV["Event detection: bite, tail-out, reversals, hold points, cuts"]
   EV --> K
-  K --> TR["Traiettorie: testa e coda per pezzo, esatte per segmento"]
-  TR --> CK["Check: gap per zona, occupazione risorse, bilancio di massa"]
-  CK --> OPT["Ricerca pacing minimo (bisezione) / Monte Carlo robustezza"]
-  TR --> UI["Grafico spazio-tempo + gap(t) + tabella eventi"]
+  K --> TR["Trajectories: head and tail per piece, exact per segment"]
+  TR --> CK["Checks: gap per zone, resource occupancy, mass balance"]
+  CK --> OPT["Minimum pacing search (bisection) / Monte Carlo robustness"]
+  TR --> UI["Space-time chart + gap(t) + event table"]
   CK --> UI
   OPT --> UI
-  UI --> OUT["Export: xlsx risultati, PNG/PDF, CSV eventi"]
+  UI --> OUT["Export: results xlsx, PNG/PDF, event CSV"]
 ```
 
-Il cuore e' il motore a segmenti: ogni tratto di moto e' `x(t) = x0 + v0*t + 0.5*a*t^2`, quindi
+The heart is the segment engine: every stretch of motion is `x(t) = x0 + v0*t + 0.5*a*t^2`, therefore
 
-- le traiettorie sono **esatte** (nessun errore di integrazione),
-- il grafico ha decine di punti invece di centinaia di migliaia (Plotly non soffre),
-- il gap tra due pezzi e' anch'esso quadratico a tratti: il primo istante di violazione si trova
-  **analiticamente** risolvendo `gap(t) = gap_min`, con precisione al microsecondo,
-- una simulazione costa microsecondi, quindi bisezione sul pacing e Monte Carlo diventano gratis.
+- trajectories are **exact** (no integration error),
+- the chart has dozens of points instead of hundreds of thousands (Plotly does not suffer),
+- the gap between two pieces is itself piecewise quadratic: the first instant of violation is found
+  **analytically** by solving `gap(t) = gap_min`, accurate to the microsecond,
+- one simulation costs microseconds, so bisection on the pacing and Monte Carlo become free.
 
-Il motore deve essere **separato dalla UI e dall'I/O Excel** (libreria pura + adattatori), altrimenti
-non e' testabile e non potra' mai essere richiamato da altro (foglio, batch, notebook).
-
----
-
-## 7. Cosa NON metterei nella v1
-
-Per evitare che il progetto muoia di scope creep:
-
-- modello termico completo e modello di forza/coppia di laminazione;
-- modello di allargamento fisico (usa larghezze da schedule);
-- ottimizzatore multi-prodotto sull'intero programma di laminazione (coffin schedule);
-- editor grafico del layout;
-- integrazione diretta con L2/database.
-
-Tutte cose sensate **dopo** che il nucleo cinematico e' validato su dati reali.
+The engine must be **separated from the UI and from the Excel I/O** (a pure library plus adapters),
+otherwise it is not testable and can never be called from anywhere else (a spreadsheet, a batch job, a
+notebook).
 
 ---
 
-## 8. Performance: dove NON e' il problema (e dove lo e')
+## 7. What I would leave out of v1
 
-Numeri d'ordine di grandezza, da correggere con i tuoi dati:
+To keep the project from dying of scope creep:
 
-- una sequenza completa e' ~200-400 s di tempo reale, con ~50-200 eventi per pezzo;
-- con i segmenti analitici, una simulazione e' O(numero eventi): microsecondi-millisecondi;
-- bisezione sul pacing minimo: ~20 simulazioni. Monte Carlo 10^4 run: secondi.
+- a complete thermal model and a roll force/torque model;
+- a physical spread model (use the widths from the schedule);
+- a multi-product optimiser over the whole rolling programme (coffin schedule);
+- a graphical layout editor;
+- direct integration with L2 or a database.
 
-Quindi il collo di bottiglia **non e' il calcolo**. Lo e':
-
-- **il rendering** se sbagli approccio: campionare a 1 ms per 600 s x N pezzi x 2 curve significa
-  milioni di punti e una UI inutilizzabile. Con i segmenti il problema sparisce.
-- **il tempo di apertura di Excel** con openpyxl su file grossi e pieni di formattazione (secondi).
-  Si mitiga leggendo in `read_only`/`data_only`.
-- **il tempo umano**: se il ciclo "modifico Excel, rilancio, guardo il grafico" dura piu' di ~5 secondi,
-  il tool non verra' usato per esplorare scenari. Questo e' il vero requisito di performance.
+All sensible things, **after** the kinematic core has been validated on real data.
 
 ---
 
-## 9. Rischi principali
+## 8. Performance: where the problem is NOT (and where it is)
 
-1. **Garbage in, garbage out**: il risultato vale quanto i profili di velocita' in ingresso. Senza
-   validazione su tracking reale nessuno si fidera' del numero di pacing che esce.
-2. **Semantica sbagliata del modello** (open-loop vs interblocchi, Q2): rischi di costruire uno
-   strumento che risponde a una domanda diversa da quella che ti fanno in riunione.
-3. **Il vincolo vero e' altrove**: forno o avvolgitore, non laminatoio. Il tool sarebbe formalmente
-   corretto e praticamente inutile.
-4. **Hardcoding di 2 pezzi**: refactoring costoso quando scoprirai che il vincolo e' N vs N+2.
-5. **Deployment**: se i colleghi non riescono a lanciarlo (policy IT, antivirus, niente Python), il
-   progetto e' morto a prescindere dalla qualita' del modello.
-6. **Formato Excel divergente**: senza `schema_version` e validazione, il supporto ti mangera' vivo.
+Orders of magnitude, to be corrected with your data:
 
----
+- a complete sequence lasts about 200 to 400 s of real time, with roughly 50 to 200 events per piece;
+- with analytic segments, one simulation is O(number of events): microseconds to milliseconds;
+- bisection for the minimum pacing: about 20 simulations. A Monte Carlo of 10^4 runs: seconds.
 
-## 10. Checklist di edge case da tenere sotto controllo
+So the bottleneck **is not the computation**. It is:
 
-- [ ] Pezzo piu' lungo della distanza tra due gabbie (ingaggio multiplo simultaneo).
-- [ ] Bar piu' lungo del tavolo di trasferimento.
-- [ ] Coda ancora nell'ultima passata di sbozzatura mentre la testa e' gia' alla cesoia.
-- [ ] Testa gia' avvolta mentre la coda e' ancora in F1 (nastro in tiro su tutto il finitore).
-- [ ] Passata a vuoto / dummy pass (riduzione nulla).
-- [ ] Numero dispari vs pari di passate al reversibile (verso di uscita).
-- [ ] Coilbox: scambio testa/coda.
-- [ ] Taglio a meta' / doppia bramma: nasce un pezzo nuovo a runtime.
-- [ ] Crop testa e coda: lunghezza discontinua.
-- [ ] Inversione mentre il pezzo successivo si sta avvicinando (rischio massimo).
-- [ ] Prodotti diversi in sequenza (spessori/larghezze diverse -> cicli diversi -> il pacing non e'
-      costante lungo il programma).
-- [ ] Primo e ultimo pezzo del programma (nessun predecessore/successore).
-- [ ] Pacing cosi' largo che i pezzi non interagiscono mai (il tool deve dirlo, non tacere).
-- [ ] Pacing cosi' stretto che la violazione avviene gia' all'estrazione dal forno.
-- [ ] Velocita' o lunghezze negative, gabbie in posizione non monotona, riduzione > 100%.
-- [ ] Bilancio di massa non conservato entro tolleranza (input incoerente).
-- [ ] Larghezza costante vs allargamento (impatto sull'allungamento).
-- [ ] Sovrapposizione tra tempo di screwdown e decelerazione all'inversione.
-- [ ] Vincolo di velocita' di descagliatura in finestra spaziale.
-- [ ] Tempo massimo di permanenza per motivi termici.
-- [ ] Ciclo avvolgitore (taglio + trasferimento coil) come vincolo di cadenza.
-- [ ] Cadenza massima di estrazione dal forno.
+- **the rendering**, if you get the approach wrong: sampling at 1 ms over 600 s for N pieces and 2 curves
+  means millions of points and an unusable UI. With segments the problem disappears.
+- **the time to open Excel** with openpyxl on large, heavily formatted files (seconds). Mitigated by
+  reading in `read_only`/`data_only` mode.
+- **human time**: if the cycle "edit Excel, rerun, look at the chart" takes more than about 5 seconds,
+  the tool will not be used to explore scenarios. That is the real performance requirement.
 
 ---
 
-## 11. Riepilogo delle risposte che mi servono
+## 9. Main risks
 
-| # | Domanda | Perche' blocca |
-|---|---------|----------------|
-| Q1 | Perimetro linea e configurazione (reversibile singolo/doppio, coilbox, avvolgitori) | Definisce il modello dati e gli eventi topologici |
-| Q2 | Open-loop diagnostico vs closed-loop con interblocchi | E' la scelta architetturale principale |
-| Q3 | Verifica / ottimizzazione del pacing minimo / robustezza stocastica | Definisce l'output e la UI |
-| Q4 | 2 pezzi fissi o N generico | Costo bassissimo ora, alto dopo |
-| Q5 | Velocita': m/s o rpm+slip; master + bilancio di massa o tutte esplicite; spread | Definisce lo schema Excel |
-| Q6 | Deployment: exe / web interna / add-in Excel / script; vincoli IT | Decide il linguaggio |
-| Q7 | Disponibilita' di dati reali di tracking per validazione | Decide la credibilita' del tool |
-
-Rispondi anche solo alle bloccanti e produco il piano di implementazione dettagliato.
-
----
-
-## 12. Risposte ricevute e conseguenze tecniche
-
-**Q1 - Linea completa (forno -> avvolgitori), sbozzatore con R1 e R2 entrambe reversibili e con edger,
-coilbox presente.**
-
-E' la configurazione peggiore delle possibili, nel senso di piu' ricca di vincoli:
-
-- Due gabbie reversibili in serie significano **due envelope di corsa** da tenere mutuamente esclusive.
-  Durante le passate inverse di R2 la coda materiale del bar risale verso R1, e se R1 sta lavorando il
-  pezzo successivo i due si guardano in faccia. Questo e' esattamente il caso N vs N+2 e conferma che
-  limitare a 2 pezzi sarebbe stato un errore.
-- Il **coilbox e' un buffer**: disaccoppia parzialmente la cadenza di sbozzatura da quella di finitura,
-  quindi il pacing ottimo non e' determinato da un unico collo di bottiglia ma dal peggiore tra
-  sbozzatura, coilbox e finitura+avvolgitore. Il tool deve dire **quale** vincolo e' attivo, altrimenti
-  ottimizzi la cosa sbagliata.
-- Nel coilbox il pezzo non e' un segmento: e' **un punto**. Testa e coda coincidono con la posizione del
-  coilbox e la lunghezza in linea e' zero. Serve uno stato dedicato, e allo svolgimento gli estremi si
-  scambiano.
-
-**Q2 - Entrambe le modalita' (open-loop diagnostica + closed-loop con interblocchi).**
-
-Va bene, ma comporta un layer aggiuntivo: definizione delle **zone a occupazione esclusiva**, dei
-**hold point** e della logica di rilascio. Un dettaglio che sembra minore e non lo e': un pezzo che deve
-fermarsi a un hold point deve **iniziare a frenare prima**, alla distanza `v^2/(2a)`. Se il modello lo
-fa fermare istantaneamente al punto, sovrastima la produttivita' in modo sistematico proprio negli
-scenari stretti, che sono quelli che ti interessano.
-
-**Q3 - Verifica + pacing minimo + robustezza, tutti e tre.**
-
-Coerente con il motore a segmenti analitici: la verifica e' una simulazione, il pacing minimo e' una
-bisezione (~20 simulazioni), la robustezza e' Monte Carlo (10^4 simulazioni). Serve pero' che l'Excel
-porti anche le **dispersioni**: tolleranza sulle velocita' e distribuzione dei tempi morti (inversione,
-screwdown, cesoia, trasferimento coil). Senza quei numeri la modalita' robustezza non ha input.
-
-**Q4 - N pezzi generico.** Nessuna conseguenza negativa, solo lavoro fatto bene dall'inizio.
-
-**Q5 - Tutte le velocita' esplicite, il tool verifica il bilancio di massa. Qui ti contesto la scelta.**
-
-In sbozzatura funziona: una gabbia per volta, il bar tra R1 e R2 e' libero, se le velocita' che dai
-sono incoerenti con le riduzioni il risultato e' solo una lunghezza finale diversa da quella geometrica,
-e il tool te lo segnala. Nel **finitore tandem no**: il nastro tra F1 e F2 ha lunghezza *fissa* imposta
-dalla geometria, quindi il bilancio di massa non e' una verifica, e' un **vincolo fisico duro**. Se dai
-sette velocita' incoerenti, nella realta' l'impianto risponde con tiro o con anse sui looper, e oltre
-un certo punto strappa il nastro o fa cobble. Un tool che si limita a "segnalare" e poi simula
-traiettorie impossibili produce numeri sbagliati proprio nella zona piu' veloce dell'impianto.
-
-Comportamento che propongo (default, sovrascrivibile): in sbozzatura le velocita' esplicite comandano e
-il bilancio di massa e' un check con tolleranza; nel tandem si sceglie una **gabbia master** (tipicamente
-l'ultima, F7, o quella che detta la FDT) e le altre velocita' vengono **ricalcolate per mass flow**,
-mostrando in tabella lo scostamento rispetto a quelle inserite. Cosi' vedi subito se la tua schedule e'
-autoconsistente, e la simulazione resta fisica.
-
-**Q6 - Web app interna, con dubbi sulle restrizioni IT, e in prospettiva una libreria per l'ufficio L2
-(C++/C#).**
-
-Due conseguenze pesanti sull'architettura:
-
-- Il dubbio sull'IT si risolve **non scegliendo**. La stessa applicazione web puo' girare (a) su un
-  server d'ufficio con i colleghi che aprono un URL, oppure (b) **in locale sul PC del collega**, come
-  processo che apre `127.0.0.1` sul browser gia' installato. Nel caso (b) non serve server, non serve
-  rete, non serve aprire porte: se poi la si impacchetta come eseguibile, non serve neanche Python.
-  Costruiamo (b) subito, che e' anche il modo in cui si sviluppa, e (a) diventa gratis quando l'IT
-  autorizza. Le domande da girare all'IT sono comunque tre: si puo' eseguire un `.exe` non firmato dal
-  profilo utente, si puo' installare Python o una distribuzione portabile, esiste un server interno con
-  policy di pubblicazione HTTP gia' definita.
-- La libreria futura per il Livello 2 e' un requisito di **portabilita'**, e va rispettato da subito o
-  non sara' mai vero: il nucleo di calcolo deve essere **aritmetica pura**, senza numpy/pandas, senza
-  stato nascosto, deterministico, con un contratto di ingresso/uscita in **JSON** e una **specifica
-  scritta** dell'algoritmo. Cosi' il porting in C++/C# e' un lavoro meccanico e, nel frattempo, il
-  Livello 2 puo' gia' invocare l'eseguibile passando JSON. Pandas e Plotly restano confinati nei layer
-  Excel e UI, che non verranno portati.
-
-**Q7 - Dati reali esistono ma sono difficili da estrarre.**
-
-Non blocca, ma definiamo **subito** il formato CSV di confronto (timestamp, id pezzo, posizione testa,
-posizione coda, velocita', eventi) e lasciamo il gancio nella UI. Quando riuscirai a estrarre un
-tracking reale, la funzione "simulato vs misurato" e' un pomeriggio di lavoro invece di un refactoring.
+1. **Garbage in, garbage out**: the result is worth as much as the input speed profiles. Without
+   validation against real tracking nobody will trust the pacing number that comes out.
+2. **Wrong model semantics** (open-loop versus interlocks, Q2): you risk building an instrument that
+   answers a different question from the one being asked in the meeting.
+3. **The real constraint is elsewhere**: the furnace or the coiler, not the mill. The tool would be
+   formally correct and practically useless.
+4. **Hardcoding 2 pieces**: an expensive refactoring once you discover the constraint is between N and
+   N+2.
+5. **Deployment**: if your colleagues cannot launch it (IT policy, antivirus, no Python), the project is
+   dead regardless of the quality of the model.
+6. **Diverging Excel formats**: without `schema_version` and validation, support will eat you alive.
 
 ---
 
-## 13. Decisioni di progetto adottate come default
+## 10. Checklist of edge cases to keep under control
 
-Sono tutte sovrascrivibili, ma servono per non lasciare buchi semantici nel modello.
-
-- **D1 - Stato del pezzo**: due gradi di liberta' (testa e coda materiali), lunghezza derivata. Gli
-  estremi geometrici anteriore/posteriore sono calcolati, mai assunti.
-- **D2 - Gap**: `min(testa_A, coda_A) - max(testa_B, coda_B)`, valido anche in inversione. Soglia
-  `gap_min` definita **per zona**. Si riportano sia il gap spaziale sia quello temporale.
-- **D3 - Zona comandante**: fuori dalle gabbie, la velocita' e' quella della zona che contiene
-  l'estremita' anteriore, limitata da eventuali finestre di vincolo (descagliatura) sovrapposte al
-  pezzo. Regola esplicita e configurabile.
-- **D4 - Gabbie ingaggiate**: `v_testa` = uscita dell'ultima gabbia ingaggiata, `v_coda` = ingresso
-  della prima. Ogni bite e tail-out e' un evento.
-- **D5 - Tandem**: mass flow imposto da gabbia master; scostamenti dalle velocita' inserite riportati.
-- **D6 - Coilbox**: stato dedicato, pezzo puntiforme, scambio testa/coda allo svolgimento, tempi di
-  avvolgimento/sosta/svolgimento come parametri.
-- **D7 - Avvolgitore**: alla presa la testa si blocca; la lunghezza in linea decresce; il ciclo
-  avvolgitore (taglio, trasferimento coil) occupa la risorsa e vincola la cadenza.
-- **D8 - Hold point**: frenata anticipata alla distanza `v^2/(2a)`, mai arresto istantaneo.
-- **D9 - Unita'**: SI interno (m, s, m/s, kg). L'Excel accetta unita' pratiche dichiarate
-  nell'intestazione (mm, m/min) e converte in ingresso.
-- **D10 - I/O**: input Excel read-only con `schema_version`; risultati in file separato. Nessuna
-  scrittura nel file di input.
-- **D11 - Nucleo portabile**: aritmetica pura, contratto JSON, spec scritta per il futuro porting L2.
-
----
-
-## 14. Revisione del 31/08: chiarimenti e decisioni aggiornate
-
-### 14.1 Il modello e' comandato dalla testa (supera il punto 6)
-
-Il chiarimento piu' importante: **non esistono setpoint di zona**. L'utente descrive il moto con **eventi
-di cambio velocita' riferiti alla testa**, e il tool ne deriva l'effetto sulla coda ovunque essa sia.
-Questo elimina l'ambiguita' della "zona comandante" (D3 decade) e semplifica il modello.
-
-La regola di derivazione della coda e' l'unico pezzo di fisica che serve:
-
-- nessuna gabbia tra coda e testa: corpo rigido, `v_coda = v_testa`;
-- gabbie ingaggiate tra coda e testa: `v_coda = v_testa / Π λ_i`, con `λ_i = (h_in·w_in)/(h_out·w_out)`.
-
-Vale identica per la singola passata in sbozzatura e per il tandem con piu' gabbie ingaggiate. Ogni bite
-aggiunge un fattore alla catena, ogni tail-out lo toglie: al tail-out la coda ha un **gradino** di
-velocita', che e' fisicamente corretto e non va smussato.
-
-**Sezioni**: la linea e' divisa in sezioni definite dall'utente, non necessariamente delimitate dalle
-gabbie; una sezione fisica puo' essere spezzata in sotto-sezioni in punti notevoli. Ogni cambio di
-velocita' e' dato come **distanza dall'inizio della sezione** piu' velocita' target, fino a **7 per
-sezione**. Se un evento scatta mentre la rampa precedente e' ancora in corso, la rampa viene ri-puntata
-al nuovo target: non e' un errore.
-
-Un solo punto resta ambiguo: nelle **passate inverse** l'estremita' che avanza e' la coda materiale.
-Vedi domanda R1 in fondo.
-
-### 14.2 Punti chiusi
-
-- **Punto 7 - slittamento sui rulli**: trascurato. Rimosso dal modello.
-- **Punto 8 - rampe**: jerk infinito, accelerazione = decelerazione, definite per asse, default 1 m/s².
-- **Punto 9 - inversione**: un unico `reversing delay` per passata, che l'utente popola tenendo conto di
-  screwdown e centraggio sideguides. Nessuna modellazione separata dei due contributi.
-- **Punto 10 - vincoli di velocita' per finestra spaziale**: fuori scope. Cesoia e descagliatore si
-  gestiscono con sezioni ed eventi di velocita'.
-- **Punto 11 - zoom rolling**: presente, nella convenzione del modello offline. Delta di velocita' in
-  **%**, inizio accelerazione fissato dalla **posizione della testa dopo l'ultima gabbia**. Il trigger
-  usa la **testa virtuale**, cioe' la posizione che la testa avrebbe se continuasse ad avanzare
-  ignorando l'arresto al coiler. E' voluto: se il coiler e' a 80 m e il trigger a 100 m, lo zoom parte
-  dopo qualche avvolgimento. La testa **fisica** resta comunque bloccata al coiler per il grafico e per
-  il calcolo del gap: le due posizioni convivono nel modello, con nomi distinti.
-- **Punto 13 - termico**: fuori scope, i dati di input si assumono buoni.
-- **Punto 14 - forno e avvolgitore**: fuori scope, colli di bottiglia valutati a posteriori.
-- **Sezione 4 - Excel**: `.xlsx` puro senza macro, unita' **fissate a monte nel template**, nessuna
-  colonna unita'. D9 aggiornata di conseguenza. Vedi domanda R2 per la scelta delle unita'.
-- **Sezione 5 - grafico**: **posizione su X, tempo su Y** (convenzione layout orizzontale), linee
-  **verticali** per le apparecchiature, banda riempita al posto delle due linee, interattivo con zoom e
-  hover, Gantt di occupazione confermato, export PNG ad alta risoluzione. Vedi domanda R3 sul verso
-  dell'asse tempo.
-
-### 14.3 Cambi di scopo
-
-- **Q2 rivista: solo open-loop.** Niente interblocchi, hold point, frenate anticipate o attese
-  automatiche. D8 decade, e con essa un intero layer del progetto. Conseguenza positiva e non ovvia: i
-  pezzi diventano **completamente disaccoppiati**, quindi ogni prodotto si simula **una volta sola** e le
-  copie si collocano a scalare di un offset temporale. Il deliverable naturale non e' piu' un singolo
-  numero ma la **curva del gap minimo in funzione del pacing**, calcolabile in un colpo solo, con
-  posizione, istante e sezione del punto critico. Il pacing minimo ammissibile si legge dalla curva.
-- **Coilbox rinviato alla fase 2.** Confermo che conviene: e' l'unico elemento che introduce uno stato
-  topologico speciale (pezzo puntiforme e scambio testa/coda). Il target della v1 e' un layout
-  convenzionale. Lascio il punto di estensione nella macchina a stati, ma niente codice ora.
-- **Q5 confermata**: nel tandem le velocita' discendono da una gabbia master per mass flow, con report
-  degli scostamenti rispetto ai valori inseriti.
-
-### 14.4 Domande residue, minori ma non nulle
-
-- **R1 - Estremita' di trigger nelle passate inverse.** Gli eventi di velocita' sono ancorati alla
-  "testa". In una passata inversa l'estremita' che avanza e' la coda materiale. Il trigger va inteso
-  come *estremita' che guida nel verso corrente* (default che propongo, con colonna di override per
-  ancorarlo esplicitamente alla testa materiale), oppure sempre come testa materiale? Sbagliare qui
-  produce risultati plausibili ma errati nelle passate pari.
-- **R2 - Unita' del template.** Propongo: posizioni e lunghezze in **m**, spessori e larghezze in **mm**,
-  velocita' in **m/s**, tempi in **s**, accelerazioni in **m/s²**. Confermi, o preferisci velocita' in
-  m/min?
-- **R3 - Verso dell'asse tempo.** Con la posizione su X, il tempo cresce verso l'alto o verso il basso?
-  Metto comunque un interruttore nella UI, serve solo il default.
-
-**Risposte**: R1 estremita' che guida nel verso corrente, con colonna di override; R2 unita' come
-proposte (m, mm, m/s, s, m/s2); R3 tempo crescente verso il basso.
+- [ ] Piece longer than the distance between two stands (simultaneous multiple engagement).
+- [ ] Bar longer than the transfer table.
+- [ ] Tail still in the last roughing pass while the head is already at the shear.
+- [ ] Head already coiled while the tail is still in F1 (strip under tension across the whole mill).
+- [ ] Idle / dummy pass (zero reduction).
+- [ ] Odd versus even number of passes at the reversing mill (exit direction).
+- [ ] Coilbox: head and tail swap.
+- [ ] Dividing cut / double slab: a new piece born at runtime.
+- [ ] Head and tail crop: discontinuous length.
+- [ ] Reversal while the next piece is approaching (maximum risk).
+- [ ] Different products in sequence (different thicknesses and widths -> different cycles -> the pacing
+      is not constant along the programme).
+- [ ] First and last piece of the programme (no predecessor or successor).
+- [ ] A pacing so wide that the pieces never interact (the tool must say so, not stay silent).
+- [ ] A pacing so tight that the violation already happens at furnace extraction.
+- [ ] Negative speeds or lengths, non monotonic stand positions, reduction above 100%.
+- [ ] Mass balance not conserved within tolerance (inconsistent input).
+- [ ] Constant width versus spread (impact on elongation).
+- [ ] Overlap between screwdown time and deceleration at the reversal.
+- [ ] Descaling speed constraint inside a spatial window.
+- [ ] Maximum dwell time for thermal reasons.
+- [ ] Coiler cycle (cut plus coil transfer) as a cadence constraint.
+- [ ] Maximum furnace extraction rate.
 
 ---
 
-## 15. Esito dell'implementazione
+## 11. Summary of the answers I need
 
-### 15.1 Dove sono finite le decisioni
+| # | Question | Why it blocks |
+|---|----------|---------------|
+| Q1 | Line scope and configuration (single or double reversing stand, coilbox, coilers) | Defines the data model and the topological events |
+| Q2 | Open-loop diagnostic versus closed-loop with interlocks | It is the main architectural choice |
+| Q3 | Verification / minimum pacing optimisation / stochastic robustness | Defines the output and the UI |
+| Q4 | Fixed 2 pieces or generic N | Very cheap now, expensive later |
+| Q5 | Speeds: m/s or rpm plus slip; master plus mass balance or all explicit; spread | Defines the Excel schema |
+| Q6 | Deployment: exe / internal web / Excel add-in / script; IT constraints | Decides the language |
+| Q7 | Availability of real tracking data for validation | Decides the credibility of the tool |
 
-| Decisione | Dove vive |
+Answer the blocking ones alone and I will produce the detailed implementation plan.
+
+---
+
+## 12. Answers received and technical consequences
+
+**Q1 - Complete line (furnace to coilers), roughing mill with R1 and R2 both reversing and with edgers,
+coilbox present.**
+
+This is the worst of the possible configurations, in the sense of the richest in constraints:
+
+- Two reversing stands in series means **two travel envelopes** to keep mutually exclusive. During the
+  reverse passes of R2 the material tail of the bar climbs back towards R1, and if R1 is working the
+  next piece the two look each other in the eye. This is exactly the N versus N+2 case and it confirms
+  that limiting the analysis to 2 pieces would have been a mistake.
+- The **coilbox is a buffer**: it partly decouples the roughing cadence from the finishing one, so the
+  optimal pacing is not set by a single bottleneck but by the worst among roughing, coilbox and
+  finishing plus coiler. The tool must say **which** constraint is active, otherwise you optimise the
+  wrong thing.
+- Inside the coilbox the piece is not a segment: it is **a point**. Head and tail coincide with the
+  coilbox position and the length on the line is zero. A dedicated state is needed, and on uncoiling the
+  extremities swap.
+
+**Q2 - Both modes (open-loop diagnostic plus closed-loop with interlocks).**
+
+Fine, but it brings an extra layer: definition of the **exclusive occupancy zones**, of the **hold
+points** and of the release logic. One detail that looks minor and is not: a piece that has to stop at a
+hold point must **start braking earlier**, at a distance of `v^2/(2a)`. If the model stops it
+instantaneously at the point, it systematically overestimates throughput precisely in the tight
+scenarios, which are the ones you care about.
+
+**Q3 - Verification plus minimum pacing plus robustness, all three.**
+
+Consistent with the analytic segment engine: verification is one simulation, minimum pacing is a
+bisection (about 20 simulations), robustness is Monte Carlo (10^4 simulations). The Excel file must
+however also carry the **dispersions**: tolerance on the speeds and distribution of the dead times
+(reversal, screwdown, shear, coil transfer). Without those numbers the robustness mode has no input.
+
+**Q4 - Generic N pieces.** No downside, just work done properly from the start.
+
+**Q5 - All speeds explicit, the tool checks the mass balance. Here I contest the choice.**
+
+In roughing it works: one stand at a time, the bar between R1 and R2 is free, and if the speeds you give
+are inconsistent with the reductions the only result is a final length different from the geometric one,
+which the tool tells you. In the **finishing tandem it does not**: the strip between F1 and F2 has a
+*fixed* length imposed by geometry, so the mass balance is not a check, it is a **hard physical
+constraint**. If you give seven inconsistent speeds, in reality the plant answers with tension or with
+loops on the loopers, and beyond a point it tears the strip or cobbles. A tool that merely "flags" and
+then simulates impossible trajectories produces wrong numbers precisely in the fastest part of the
+plant.
+
+Proposed behaviour (default, overridable): in roughing the explicit speeds command and the mass balance
+is a check with a tolerance; in the tandem a **master stand** is chosen (typically the last one, F7, or
+the one setting the finishing temperature) and the other speeds are **recomputed by mass flow**, with a
+table showing the deviation from the ones entered. That way you immediately see whether your schedule is
+self consistent, and the simulation stays physical.
+
+**Q6 - Internal web app, with doubts about the IT restrictions, and in perspective a library for the
+Level 2 department (C++/C#).**
+
+Two heavy architectural consequences:
+
+- The doubt about IT is resolved by **not choosing**. The same web application can run (a) on an office
+  server with colleagues opening a URL, or (b) **locally on the colleague's PC**, as a process serving
+  `127.0.0.1` in the browser already installed. In case (b) no server, no network and no open port are
+  needed: bundled as an executable, not even Python is needed. We build (b) right away, which is also
+  how it gets developed, and (a) comes for free once IT authorises it. The three questions to put to IT
+  anyway are: can an unsigned `.exe` run from the user profile, can Python or a portable distribution be
+  installed, is there an internal server with an already defined HTTP publishing policy.
+- The future library for the Level 2 system is a **portability** requirement, and it must be honoured
+  from the start or it will never be true: the calculation core must be **pure arithmetic**, without
+  numpy or pandas, without hidden state, deterministic, with an input/output contract in **JSON** and a
+  **written specification** of the algorithm. That way the port to C++/C# is mechanical work and, in the
+  meantime, the Level 2 system can already invoke the executable passing JSON. Pandas and Plotly stay
+  confined to the Excel and UI layers, which will not be ported.
+
+**Q7 - Real data exists but is hard to extract.**
+
+Not blocking, but let us define the comparison CSV format **now** (timestamp, piece id, head position,
+tail position, speed, events) and leave the hook in the UI. When you manage to extract a real tracking
+run, the "simulated versus measured" feature is an afternoon of work instead of a refactoring.
+
+---
+
+## 13. Project decisions adopted as defaults
+
+All of them overridable, but they are needed to avoid semantic holes in the model.
+
+- **D1 - State of the piece**: two degrees of freedom (material head and tail), length derived. The
+  geometric front and rear extremities are computed, never assumed.
+- **D2 - Gap**: `min(head_A, tail_A) - max(head_B, tail_B)`, valid during reversals too. The `gap_min`
+  threshold defined **per zone**. Both spatial and temporal gaps reported.
+- **D3 - Commanding zone**: outside the stands, the speed is the one of the zone containing the front
+  extremity, limited by any constraint window (descaling) overlapping the piece. An explicit,
+  configurable rule.
+- **D4 - Engaged stands**: `v_head` = exit of the last engaged stand, `v_tail` = entry of the first.
+  Every bite and tail-out is an event.
+- **D5 - Tandem**: mass flow imposed by the master stand; deviations from the entered speeds reported.
+- **D6 - Coilbox**: dedicated state, point-like piece, head and tail swap on uncoiling, coiling, dwell
+  and uncoiling times as parameters.
+- **D7 - Coiler**: on gripping, the head is pinned; the length on the line decreases; the coiler cycle
+  (cut, coil transfer) occupies the resource and constrains the cadence.
+- **D8 - Hold points**: braking anticipated by `v^2/(2a)`, never an instantaneous stop.
+- **D9 - Units**: SI internally (m, s, m/s, kg). The Excel file accepts practical units declared in the
+  header (mm, m/min) and converts on input.
+- **D10 - I/O**: read-only Excel input with `schema_version`; results in a separate file. No writing into
+  the input file.
+- **D11 - Portable core**: pure arithmetic, JSON contract, written specification for the future L2
+  porting.
+
+---
+
+## 14. Revision of 31 August: clarifications and updated decisions
+
+### 14.1 The model is head driven (supersedes point 6)
+
+The most important clarification: **there are no zone setpoints**. The user describes the motion through
+**speed change events referred to the head**, and the tool derives the effect on the tail wherever it
+happens to be. This removes the "commanding zone" ambiguity (D3 falls away) and simplifies the model.
+
+The tail derivation rule is the only piece of physics needed:
+
+- no stand between tail and head: rigid body, `v_tail = v_head`;
+- stands engaged between tail and head: `v_tail = v_head / prod(lambda_i)`, with
+  `lambda_i = (h_in*w_in)/(h_out*w_out)`.
+
+It holds identically for a single roughing pass and for a tandem with several engaged stands. Every bite
+adds a factor to the chain, every tail-out removes one: at tail-out the tail speed has a **step**, which
+is physically correct and must not be smoothed.
+
+**Sections**: the line is divided into user defined sections, not necessarily bounded by the stands; a
+physical section can be split into sub-sections at notable points. Every speed change is given as a
+**distance from the start of the section** plus a target speed, up to **7 per section**. If an event
+fires while the previous ramp is still running, the ramp is simply re-targeted: that is not an error.
+
+One point remains ambiguous: on **reverse passes** the extremity that advances is the material tail. See
+question R1 at the end.
+
+### 14.2 Points closed
+
+- **Point 7 - roller slip**: neglected. Removed from the model.
+- **Point 8 - ramps**: infinite jerk, acceleration equal to deceleration, defined per axis, default
+  1 m/s2.
+- **Point 9 - reversal**: a single `reversing delay` per pass, which the user fills in accounting for
+  screwdown and side guide centring. No separate modelling of the two contributions.
+- **Point 10 - speed constraints over a spatial window**: out of scope. Shear and descaler are handled
+  with sections and speed events.
+- **Point 11 - zoom rolling**: present, in the convention of the offline model. Speed increment in
+  **per cent**, start of acceleration set by the **position of the head past the last stand**. The
+  trigger uses the **virtual head**, that is the position the head would have if it kept advancing,
+  ignoring the stop at the coiler. This is intentional: if the coiler is at 80 m and the trigger at
+  100 m, the zoom starts after a few wraps. The **physical** head does stay pinned at the coiler for the
+  chart and for the gap computation: the two positions coexist in the model, under distinct names.
+- **Point 13 - thermal**: out of scope, input data assumed sound.
+- **Point 14 - furnace and coiler**: out of scope, bottlenecks assessed separately.
+- **Section 4 - Excel**: plain `.xlsx` without macros, units **fixed upstream in the template**, no unit
+  column. D9 updated accordingly.
+- **Section 5 - chart**: **position on X, time on Y** (horizontal layout convention), **vertical** lines
+  for the equipment, a filled band instead of two lines, interactive with zoom and hover, Gantt of
+  occupancy confirmed, high resolution PNG export.
+
+**Answers to the residual questions**: the speed events are anchored to the extremity leading in the
+current direction, with an override column; units as proposed (m, mm, m/s, s, m/s2); time increasing
+downwards.
+
+### 14.3 Scope changes
+
+- **Q2 revised: open-loop only.** No interlocks, hold points, anticipated braking or automatic waiting.
+  D8 falls away, and with it an entire layer of the project. A positive and non obvious consequence: the
+  pieces become **completely decoupled**, so every product is simulated **once** and the copies are
+  placed at time offsets. The natural deliverable is no longer a single number but the **minimum gap
+  versus pacing curve**, computable in one go, with the position, instant and section of the critical
+  point. The minimum feasible pacing is read off the curve.
+- **Coilbox deferred to phase 2.** I confirm this is the right call: it is the only element that
+  introduces a special topological state (point-like piece and head/tail swap). The v1 target is a
+  conventional layout. I leave the extension point in the state machine, but no code for now.
+- **Q5 confirmed**: in the tandem the speeds follow from a master stand by mass flow, with a report of
+  the deviations from the entered values.
+
+---
+
+## 15. Outcome of the implementation
+
+### 15.1 Where the decisions ended up
+
+| Decision | Where it lives |
 |---|---|
-| Segmenti analitici, radici quadratiche, differenza fra traiettorie | `src/hsmpace/core/kinematics.py` |
-| Catena di bilancio di massa, discontinuita' a bite e tail-out, inversioni, zoom su testa virtuale | `src/hsmpace/core/simulate.py` |
-| Layout, sezioni, eventi, validazione con localizzatore | `src/hsmpace/core/model.py` |
-| Gap con estremi geometrici, gap temporale, bilancio di massa | `src/hsmpace/core/analysis.py` |
-| Curva gap-vs-pacing, pacing minimo, Monte Carlo | `src/hsmpace/core/studies.py` |
-| Lettura Excel con errori riferiti alla cella | `src/hsmpace/io_excel/reader.py` |
-| Contratto JSON per il futuro Livello 2 | `src/hsmpace/core/contract.py` e `docs/algorithm-spec.md` |
+| Analytic segments, quadratic roots, difference of trajectories | `src/hsmpace/core/kinematics.py` |
+| Mass flow chain, discontinuities at bite and tail-out, reversals, zoom on the virtual head | `src/hsmpace/core/simulate.py` |
+| Layout, sections, events, validation with locators | `src/hsmpace/core/model.py` |
+| Gap with geometric extremities, time gap, mass balance | `src/hsmpace/core/analysis.py` |
+| Gap versus pacing curve, minimum pacing, Monte Carlo | `src/hsmpace/core/studies.py` |
+| Excel reading with errors referred to the cell | `src/hsmpace/io_excel/reader.py` |
+| JSON contract for the future Level 2 system | `src/hsmpace/core/contract.py` and `docs/algorithm-spec.md` |
 
-### 15.2 Il bug che il grilling aveva mancato
+### 15.2 The bug the grilling missed
 
-La suite di test ne ha tirato fuori uno che nessuna delle domande aveva anticipato: **due passate
-consecutive sulla stessa gabbia nello stesso verso mordevano nel medesimo istante**. Subito dopo un
-bite l'estremita' che guida si trova esattamente sulla gabbia, quindi la condizione di attraversamento
-della passata successiva risultava soddisfatta con distanza nulla. Il simulatore produceva un moto
-plausibile ma privo di senso invece di fermarsi. Risolto con una guardia geometrica (la gabbia deve
-essere ancora davanti) e una diagnostica che nomina la passata non raggiungibile.
+The test suite turned up one that none of the questions had anticipated: **two consecutive passes on the
+same stand in the same direction were biting at the very same instant**. Right after a bite the leading
+extremity sits exactly on the stand, so the crossing condition of the next pass was satisfied at zero
+distance. The simulator produced plausible but meaningless motion instead of stopping. Fixed with a
+geometric guard (the stand must still be ahead) and a diagnostic that names the unreachable pass.
 
-E' il tipo di errore piu' insidioso in uno strumento come questo: non genera un'eccezione, genera un
-numero.
+It is the most insidious kind of error in a tool like this: it does not raise an exception, it produces a
+number.
 
-### 15.3 Cosa dice il tool sull'impianto di esempio
+### 15.3 What the tool says about the example mill
 
-Con il layout di esempio (R1 e R2 reversibili, tre passate ciascuna, finitore a sette gabbie, coil da
-757 m) e gap minimo di 5 m, il **pacing minimo ammissibile risulta 105 s**, e il punto critico cade
-**a monte di R1, a pochi metri dall'uscita forno**. Il meccanismo e' quello previsto al punto 3 del
-capitolo 2: la passata inversa su R2 riporta la coda del bar fin quasi al forno, e quando il bar
-riparte in avanti per l'ultima passata lo fa da fermo, quindi lentamente, proprio mentre la bramma
-successiva viene estratta. Il vincolo non e' nel laminatoio ma nel punto in cui il pezzo entra.
+With the example layout (R1 and R2 reversing, three passes each, seven stand finishing mill, 757 m coil)
+and a 5 m minimum gap, the **minimum feasible pacing comes out at 105 s**, and the critical point falls
+**upstream of R1, a few metres from the furnace exit**. The mechanism is the one anticipated in point 3
+of chapter 2: the reverse pass on R2 brings the tail of the bar back almost to the furnace, and when the
+bar sets off forward again for its last pass it does so from standstill, hence slowly, exactly while the
+next slab is being extracted. The constraint is not in the mill, it is at the point where the piece
+enters.
 
-Vale la pena notare cosa questo implica: **il pacing e' limitato da un'interferenza che nessuna
-intuizione colloca dove effettivamente sta**. Chi guarda l'impianto pensa alla cesoia o all'ingresso
-finitore, non a due metri dal forno.
+It is worth noting what this implies: **the pacing is limited by an interference that no intuition puts
+where it actually is**. Someone looking at the plant thinks of the shear or of the finishing mill
+entrance, not of two metres from the furnace.
 
-### 15.4 Quota di sgombero all'inversione: parametro aggiunto dopo la review
+### 15.4 Reversing clearance: parameter added after the review
 
-Nella prima stesura il punto in cui il pezzo si ferma per invertire **non era un input**: il pezzo
-iniziava a decelerare al tail-out e si fermava dove capitava, cioe' alla distanza di frenata
-`v^2/(2a)` dalla gabbia. Nell'esempio faceva 3,1 m alla prima passata, un numero che nasce
-dall'azionamento e non da una scelta di processo. Sbagliato: in impianto la quota di sgombero e' un
-dato, deve tenere conto anche dell'edger, e pesa sul tempo ciclo.
+In the first draft the point at which the piece stops to reverse **was not an input**: the piece started
+decelerating at tail-out and stopped wherever it happened to, that is at the braking distance `v^2/(2a)`
+from the stand. On the example that gave 3.1 m on the first pass, a number coming from the drive and not
+from a process choice. Wrong: in the plant the clearance is a given, it has to account for the edger as
+well, and it weighs on the cycle time.
 
-Ora e' la colonna `reversing_clearance_m` del foglio `PassSchedule`, con la stessa convenzione del
-`reversing_delay_s`: appartiene alla passata che segue l'inversione. Il pezzo prosegue a velocita'
-costante e frena in modo da fermarsi esattamente li'. Se la quota richiesta e' piu' corta della
-distanza di frenata, il tool riporta la quota effettivamente ottenuta invece di fingere una frenata
-impossibile; lasciando la cella vuota il comportamento resta "fermarsi appena possibile".
+It is now the `reversing_clearance_m` column of the `PassSchedule` sheet, with the same convention as
+`reversing_delay_s`: it belongs to the pass that follows the reversal. The piece keeps a constant speed
+and brakes so as to stop exactly there. If the requested clearance is shorter than the braking distance,
+the tool reports the clearance actually achieved instead of faking an impossible braking; leaving the
+cell empty keeps the "stop as soon as possible" behaviour.
 
-Quanto pesa, sull'impianto di esempio:
+How much it weighs, on the example mill:
 
-| Sgombero | Ciclo del pezzo | Pacing minimo |
+| Clearance | Piece cycle | Minimum pacing |
 |---|---|---|
-| 0 m (minimo di frenata) | 232,8 s | 105,3 s |
-| 5 m | 234,7 s | 107,2 s |
-| 10 m | 248,2 s | 121,8 s |
-| 20 m | 272,5 s | 148,6 s |
+| 0 m (shortest braking) | 232.8 s | 105.3 s |
+| 5 m | 234.7 s | 107.2 s |
+| 10 m | 248.2 s | 121.8 s |
+| 20 m | 272.5 s | 148.6 s |
 
-Quaranta secondi di pacing fra l'estremo inferiore e quello superiore, cioe' circa il 40% di
-produttivita': era un parametro di primo ordine mascherato da dettaglio implementativo.
+Forty seconds of pacing between the two extremes, that is roughly 40% of throughput: it was a first order
+parameter disguised as an implementation detail.
 
-Nel realizzarlo e' emersa anche una regola strutturale che mancava: una schedule che **termina con una
-passata inversa** lascia il pezzo in moto all'indietro e non raggiunge mai l'avvolgitore. Ora e'
-rifiutata in validazione, come gia' avveniva per la prima passata inversa.
+While implementing it, a missing structural rule also surfaced: a schedule that **ends with a reverse
+pass** leaves the piece moving backwards and never reaching the coiler. It is now rejected in validation,
+as was already the case for a reverse first pass.
 
-### 15.5 Cosa manca ancora, in ordine di utilita'
+### 15.5 What is still missing, in order of usefulness
 
-1. **Validazione su tracking reale**: il formato CSV e il confronto nella UI ci sono, mancano i dati.
-   Finche' non si sovrappone il simulato al misurato, il pacing minimo resta un numero da modello.
-2. **Coilbox** (fase 2): pezzo puntiforme e scambio testa/coda.
-3. **Sequenze multiprodotto reali**: il codice le gestisce, ma il workbook di esempio ha un solo
-   prodotto. Su un programma di laminazione vero il pacing non e' costante lungo la sequenza.
-4. **Interblocchi e hold point**, se un giorno servira' il ritardo indotto invece della sola diagnosi.
-5. **Impacchettamento in eseguibile** una volta chiarito cosa consente l'IT.
-
+1. **Validation on real tracking**: the CSV format and the comparison in the UI are there, the data is
+   not. Until the simulated is overlaid on the measured, the minimum pacing stays a number from a model.
+2. **Coilbox** (phase 2): point-like piece and head/tail swap.
+3. **Real multi-product sequences**: the code handles them, but the example workbook has a single
+   product. On a real rolling programme the pacing is not constant along the sequence.
+4. **Interlocks and hold points**, if one day the induced delay is needed instead of the diagnosis alone.
+5. **Bundling into an executable**, once it is clear what IT allows.

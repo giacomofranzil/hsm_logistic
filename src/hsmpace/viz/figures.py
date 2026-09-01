@@ -1,10 +1,9 @@
-"""Grafici del tool.
+"""Charts of the tool.
 
-Il diagramma principale segue la convenzione di reparto: **posizione sull'asse
-orizzontale**, come il layout dell'impianto, e **tempo sull'asse verticale**
-crescente verso il basso. Ogni pezzo e' disegnato come una banda fra testa e
-coda: la collisione si legge come contatto fra due bande, non come incrocio di
-quattro linee.
+The main diagram follows the shop floor convention: **position on the
+horizontal axis**, like the plant layout, and **time on the vertical axis**
+increasing downwards. Every piece is drawn as a band between head and tail, so
+a collision reads as two bands touching rather than as four lines crossing.
 """
 
 from __future__ import annotations
@@ -76,7 +75,7 @@ def space_time_figure(
                 line=dict(width=0),
                 hoverinfo="skip",
                 showlegend=False,
-                name=f"{res.piece_id} ingombro",
+                name=f"{res.piece_id} envelope",
             )
         )
         fig.add_trace(
@@ -85,9 +84,9 @@ def space_time_figure(
                 y=t_head,
                 mode="lines",
                 line=dict(color=color, width=2),
-                name=f"{res.piece_id} testa",
+                name=f"{res.piece_id} head",
                 legendgroup=res.piece_id,
-                hovertemplate="testa %{x:.1f} m<br>t %{y:.1f} s<extra>"
+                hovertemplate="head %{x:.1f} m<br>t %{y:.1f} s<extra>"
                 + res.piece_id
                 + "</extra>",
             )
@@ -98,9 +97,9 @@ def space_time_figure(
                 y=t_tail,
                 mode="lines",
                 line=dict(color=color, width=2, dash="dash"),
-                name=f"{res.piece_id} coda",
+                name=f"{res.piece_id} tail",
                 legendgroup=res.piece_id,
-                hovertemplate="coda %{x:.1f} m<br>t %{y:.1f} s<extra>"
+                hovertemplate="tail %{x:.1f} m<br>t %{y:.1f} s<extra>"
                 + res.piece_id
                 + "</extra>",
             )
@@ -114,9 +113,9 @@ def space_time_figure(
                     mode="lines",
                     line=dict(color=color, width=1, dash="dot"),
                     opacity=0.5,
-                    name=f"{res.piece_id} testa virtuale",
+                    name=f"{res.piece_id} virtual head",
                     legendgroup=res.piece_id,
-                    hovertemplate="testa virtuale %{x:.1f} m<br>t %{y:.1f} s<extra></extra>",
+                    hovertemplate="virtual head %{x:.1f} m<br>t %{y:.1f} s<extra></extra>",
                 )
             )
 
@@ -127,16 +126,16 @@ def space_time_figure(
                 y=series.t,
                 mode="markers",
                 marker=dict(size=4, color="#444", symbol="circle-open"),
-                name=f"{series.piece_id} misurato",
-                hovertemplate="misurato %{x:.1f} m<br>t %{y:.1f} s<extra></extra>",
+                name=f"{series.piece_id} measured",
+                hovertemplate="measured %{x:.1f} m<br>t %{y:.1f} s<extra></extra>",
             )
         )
 
     t_min = min((r.t_start for r in results), default=0.0)
     t_max = max((r.t_end for r in results), default=1.0)
 
-    # le gabbie finitrici distano pochi metri l'una dall'altra: le etichette
-    # vengono distribuite su piu' livelli per non sovrapporsi
+    # the finishing stands sit a few metres apart: the labels are spread over
+    # several tiers so that they do not overlap
     x_span = max(case.line.x_max - case.line.x_min, 1.0)
     min_spacing = 0.025 * x_span
     tier_last: list[float] = []
@@ -167,7 +166,7 @@ def space_time_figure(
             ),
             layer="below",
         )
-        # etichette ruotate sopra l'area del grafico, per non coprire le bande
+        # labels rotated above the plotting area, so they do not cover the bands
         fig.add_annotation(
             x=eq.x,
             y=1.004 + 0.055 * tiers[eq.id],
@@ -192,19 +191,19 @@ def space_time_figure(
                     text=[f" gap {worst.critical.gap:.1f} m"],
                     textposition="middle right",
                     textfont=dict(size=11, color="#d62728"),
-                    name="punto critico",
-                    hovertemplate="gap minimo %{text}<br>x %{x:.1f} m<br>t %{y:.1f} s<extra></extra>",
+                    name="critical point",
+                    hovertemplate="minimum gap %{text}<br>x %{x:.1f} m<br>t %{y:.1f} s<extra></extra>",
                 )
             )
 
-    _layout(fig, "Diagramma spazio-tempo", top=170)
+    _layout(fig, "Space-time diagram", top=170)
     x_lo = min([case.line.x_min] + [min(s.x0 for s in r.tail.segments) for r in results])
     x_hi = max([case.line.x_max] + [max(s.x1 for s in r.head.segments) for r in results])
     span = max(x_hi - x_lo, 1.0)
     fig.update_xaxes(
-        title="Posizione lungo la linea [m]", range=[x_lo - 0.03 * span, x_hi + 0.03 * span]
+        title="Position along the line [m]", range=[x_lo - 0.03 * span, x_hi + 0.03 * span]
     )
-    fig.update_yaxes(title="Tempo [s]", autorange="reversed" if time_down else True)
+    fig.update_yaxes(title="Time [s]", autorange="reversed" if time_down else True)
     return fig
 
 
@@ -212,14 +211,14 @@ def gap_figure(analyses: list[GapAnalysis], gap_min: float) -> go.Figure:
     fig = go.Figure()
     if not analyses:
         fig.add_annotation(
-            text="I pezzi non sono mai contemporaneamente in linea: nessun gap da valutare.",
+            text="The pieces are never on the line at the same time: no gap to evaluate.",
             showarrow=False,
             xref="paper",
             yref="paper",
             x=0.5,
             y=0.5,
         )
-        return _layout(fig, "Gap fra pezzi consecutivi", height=420)
+        return _layout(fig, "Gap between consecutive pieces", height=420)
 
     for i, a in enumerate(analyses):
         color = PALETTE[i % len(PALETTE)]
@@ -242,21 +241,21 @@ def gap_figure(analyses: list[GapAnalysis], gap_min: float) -> go.Figure:
                     mode="markers",
                     marker=dict(size=9, color=color),
                     showlegend=False,
-                    hovertemplate=f"minimo {a.critical.gap:.1f} m a x={a.critical.x:.1f} m<extra></extra>",
+                    hovertemplate=f"minimum {a.critical.gap:.1f} m at x={a.critical.x:.1f} m<extra></extra>",
                 )
             )
 
     fig.add_hline(
         y=gap_min,
         line=dict(color="#d62728", width=1.5, dash="dash"),
-        annotation_text=f"gap minimo {gap_min:g} m",
+        annotation_text=f"minimum gap {gap_min:g} m",
         annotation_position="top left",
     )
     fig.add_hrect(y0=-1e6, y1=gap_min, fillcolor="rgba(214,39,40,0.06)", line_width=0, layer="below")
 
-    _layout(fig, "Gap fra pezzi in linea", height=420)
-    fig.update_xaxes(title="Tempo [s]")
-    fig.update_yaxes(title="Distanza coda-testa [m]")
+    _layout(fig, "Gap between pieces on the line", height=420)
+    fig.update_xaxes(title="Time [s]")
+    fig.update_yaxes(title="Tail to head distance [m]")
     return fig
 
 
@@ -274,36 +273,36 @@ def pacing_curve_figure(
             y=[p.min_gap for p in finite],
             mode="lines",
             line=dict(color="#1f77b4", width=2.5),
-            name="gap minimo",
+            name="minimum gap",
             customdata=[[p.section or "-", p.x_critical or 0.0] for p in finite],
-            hovertemplate="pacing %{x:.1f} s<br>gap minimo %{y:.1f} m"
+            hovertemplate="pacing %{x:.1f} s<br>minimum gap %{y:.1f} m"
             "<br>%{customdata[0]} a x=%{customdata[1]:.0f} m<extra></extra>",
         )
     )
     fig.add_hline(
         y=gap_min,
         line=dict(color="#d62728", width=1.5, dash="dash"),
-        annotation_text=f"gap minimo richiesto {gap_min:g} m",
+        annotation_text=f"minimum gap required {gap_min:g} m",
         annotation_position="bottom right",
     )
     if min_pacing is not None:
         fig.add_vline(
             x=min_pacing.pacing,
             line=dict(color="#2ca02c", width=1.5, dash="dot"),
-            annotation_text=f"pacing minimo {min_pacing.pacing:.1f} s",
+            annotation_text=f"minimum pacing {min_pacing.pacing:.1f} s",
             annotation_position="top left",
         )
     if current_pacing is not None:
         fig.add_vline(
             x=current_pacing,
             line=dict(color="#333", width=1.2),
-            annotation_text=f"pacing attuale {current_pacing:.0f} s",
+            annotation_text=f"current pacing {current_pacing:.0f} s",
             annotation_position="top right",
         )
 
-    _layout(fig, "Gap minimo in funzione del pacing", height=460)
+    _layout(fig, "Minimum gap versus pacing", height=460)
     fig.update_xaxes(title="Pacing [s]")
-    fig.update_yaxes(title="Gap minimo della sequenza [m]")
+    fig.update_yaxes(title="Minimum gap of the sequence [m]")
     return fig
 
 
@@ -324,16 +323,16 @@ def gantt_figure(case: Case, results: list[PieceResult]) -> go.Figure:
                 marker=dict(color=color, line=dict(width=0)),
                 name=res.piece_id,
                 customdata=[[o.pass_no, o.t_in, o.t_out] for o in occ],
-                hovertemplate="passata %{customdata[0]}<br>%{y}"
-                "<br>da %{customdata[1]:.1f} s a %{customdata[2]:.1f} s<extra>"
+                hovertemplate="pass %{customdata[0]}<br>%{y}"
+                "<br>from %{customdata[1]:.1f} s to %{customdata[2]:.1f} s<extra>"
                 + res.piece_id
                 + "</extra>",
             )
         )
 
-    _layout(fig, "Occupazione delle gabbie", height=420)
+    _layout(fig, "Stand occupancy", height=420)
     fig.update_layout(barmode="overlay", bargap=0.35)
-    fig.update_xaxes(title="Tempo [s]")
+    fig.update_xaxes(title="Time [s]")
     fig.update_yaxes(
         title="", categoryorder="array", categoryarray=[labels.get(i, i) for i in order]
     )
@@ -345,35 +344,35 @@ def monte_carlo_figure(mc: MonteCarloResult, gap_min: float) -> go.Figure:
     finite = [g for g in mc.min_gaps if g != float("inf")]
     if not finite:
         fig.add_annotation(
-            text="Nessuna interazione fra i pezzi in tutti i run.",
+            text="No interaction between pieces in any run.",
             showarrow=False,
             xref="paper",
             yref="paper",
             x=0.5,
             y=0.5,
         )
-        return _layout(fig, "Robustezza", height=420)
+        return _layout(fig, "Robustness", height=420)
 
     fig.add_trace(
         go.Histogram(
             x=finite,
             nbinsx=40,
             marker=dict(color="#1f77b4"),
-            name="gap minimo per run",
-            hovertemplate="gap %{x:.1f} m<br>%{y} run<extra></extra>",
+            name="minimum gap per run",
+            hovertemplate="gap %{x:.1f} m<br>%{y} runs<extra></extra>",
         )
     )
     fig.add_vline(
         x=gap_min,
         line=dict(color="#d62728", width=1.5, dash="dash"),
-        annotation_text=f"soglia {gap_min:g} m",
+        annotation_text=f"threshold {gap_min:g} m",
         annotation_position="top right",
     )
     _layout(
         fig,
-        f"Robustezza su {mc.runs} run: violazioni {100 * mc.violation_rate:.1f}%",
+        f"Robustness over {mc.runs} runs: violations {100 * mc.violation_rate:.1f}%",
         height=420,
     )
-    fig.update_xaxes(title="Gap minimo della sequenza [m]")
-    fig.update_yaxes(title="Numero di run")
+    fig.update_xaxes(title="Minimum gap of the sequence [m]")
+    fig.update_yaxes(title="Number of runs")
     return fig

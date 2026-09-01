@@ -1,15 +1,14 @@
-# Specifica dell'algoritmo
+# Algorithm specification
 
-Descrizione del nucleo di calcolo indipendente dall'implementazione, sufficiente a riscriverlo in C++
-o C# per il Livello 2. Il codice Python in `src/hsmpace/core/` e' la realizzazione di riferimento e usa
-solo aritmetica standard: nessuna libreria numerica, nessuno stato globale, nessuna dipendenza da
-Excel o da Plotly.
+Implementation independent description of the calculation core, sufficient to rewrite it in C++ or C#
+for the Level 2 system. The Python code under `src/hsmpace/core/` is the reference implementation and
+uses standard arithmetic only: no numerical library, no global state, no dependency on Excel or Plotly.
 
-Unita': metri, secondi, m/s, m/s2 per il moto; millimetri per spessori e larghezze.
+Units: metres, seconds, m/s and m/s2 for motion; millimetres for thicknesses and widths.
 
-## 1. Rappresentazione del moto
+## 1. Representation of motion
 
-Ogni estremita' di un pezzo e' descritta da una sequenza contigua di segmenti uniformemente accelerati:
+Each extremity of a piece is described by a contiguous sequence of uniformly accelerated segments:
 
 ```
 Segment { t0, t1, x0, v0, a }
@@ -17,218 +16,215 @@ x(t) = x0 + v0*(t - t0) + 0.5*a*(t - t0)^2
 v(t) = v0 + a*(t - t0)
 ```
 
-La posizione e' continua fra segmenti consecutivi; la velocita' puo' essere discontinua, cosa
-fisicamente corretta ai bite e ai tail-out. Non esiste un passo di integrazione: le traiettorie sono
-esatte.
+Position is continuous between consecutive segments; velocity may be discontinuous, which is
+physically correct at bites and tail-outs. There is no integration step: trajectories are exact.
 
-Attraversamento di una posizione: risolvere `0.5*a*tau^2 + v0*tau + (x0 - X) = 0` e scartare le radici
-fuori da `[t0, t1]` e quelle con velocita' di segno diverso da quello richiesto. Nel caso `a = 0` la
-radice e' `tau = (X - x0)/v0`, e con `v0 = 0` non c'e' attraversamento.
+Crossing of a position: solve `0.5*a*tau^2 + v0*tau + (x0 - X) = 0` and discard the roots outside
+`[t0, t1]` and those whose velocity sign differs from the one required. With `a = 0` the root is
+`tau = (X - x0)/v0`, and with `v0 = 0` there is no crossing.
 
-## 2. Stato del pezzo
-
-```
-t            tempo corrente
-x_head       posizione della testa materiale, sempre >= x_tail
-x_tail       posizione della coda materiale
-direction    +1 avanti, -1 indietro
-v_lead       modulo della velocita' dell'estremita' che guida nel verso corrente
-lam          produttoria dei lambda delle passate ingaggiate, inizialmente 1
-engaged      elenco delle passate ingaggiate, ciascuna con la posizione della gabbia
-next_pass    indice della prossima passata da ingaggiare
-target       velocita' obiettivo dell'estremita' guida
-zoom_factor  moltiplicatore cumulato dello zoom rolling, inizialmente 1
-accel        accelerazione corrente, presa dall'asse che sta comandando
-deferred     eventuale evento di sezione rinviato al disingaggio
-reversing    vero mentre si decelera per invertire
-```
-
-Estremita' guida e trascinata:
+## 2. State of a piece
 
 ```
-direction = +1  ->  guida = testa,  trascinata = coda
-direction = -1  ->  guida = coda,   trascinata = testa
+t            current time
+x_head       position of the material head, always >= x_tail
+x_tail       position of the material tail
+direction    +1 forward, -1 backward
+v_lead       magnitude of the speed of the extremity leading in the current direction
+lam          product of the lambdas of the engaged passes, initially 1
+engaged      list of engaged passes, each with the position of its stand
+next_pass    index of the next pass to engage
+target       target speed of the leading extremity
+zoom_factor  cumulated zoom rolling multiplier, initially 1
+accel        current acceleration, taken from the axis in command
+deferred     section event postponed to disengagement, if any
+reversing    true while decelerating to reverse
 ```
 
-Velocita' e accelerazione con segno:
+Leading and trailing extremity:
 
 ```
-v_guida        = direction * v_lead
-v_trascinata   = direction * v_lead / lam
-a_guida        = direction * a_lead
-a_trascinata   = direction * a_lead / lam
+direction = +1  ->  leading = head,  trailing = tail
+direction = -1  ->  leading = tail,  trailing = head
 ```
 
-dove `a_lead` vale `+accel` se `target > v_lead`, `-accel` se `target < v_lead`, altrimenti 0, e
-`target` e' `target_nominale * zoom_factor`.
+Signed velocities and accelerations:
 
-`lambda` di una passata: `(h_in * w_in) / (h_out * w_out)`. La lunghezza cresce spontaneamente, perche'
-l'estremita' a valle di ogni gabbia ingaggiata e' piu' veloce di quella a monte; non va imposta.
+```
+v_leading    = direction * v_lead
+v_trailing   = direction * v_lead / lam
+a_leading    = direction * a_lead
+a_trailing   = direction * a_lead / lam
+```
 
-## 3. Inizializzazione
+where `a_lead` is `+accel` when `target > v_lead`, `-accel` when `target < v_lead`, and 0 otherwise,
+and `target` is `nominal_target * zoom_factor`.
 
-* `t = t_release`, `x_head = x_start`, `x_tail = x_start - lunghezza_bramma`, `direction = +1`,
+The `lambda` of a pass is `(h_in * w_in) / (h_out * w_out)`. Length grows by itself, because the
+extremity downstream of every engaged stand is faster than the upstream one; it must not be imposed.
+
+## 3. Initialisation
+
+* `t = t_release`, `x_head = x_start`, `x_tail = x_start - slab_length`, `direction = +1`,
   `v_lead = 0`, `lam = 1`, `zoom_factor = 1`
-* `target_nominale` = velocita' di avvicinamento della prima passata, cioe' il campo `approach_v` se
-  presente, altrimenti `v_exit / lambda` della prima passata
-* `accel` = accelerazione dell'apparecchiatura di partenza
+* `nominal_target` = approach speed of the first pass, that is the `approach_v` field when present,
+  otherwise `v_exit / lambda` of the first pass
+* `accel` = acceleration of the starting equipment
 
-## 4. Ciclo a eventi
+## 4. Event loop
 
-A ogni iterazione l'accelerazione e' costante, quindi tutti gli attraversamenti si risolvono in forma
-chiusa. Si calcolano i candidati, si prende il piu' vicino nel tempo, si emettono i due segmenti fino a
-quell'istante e si applica l'evento.
+At every iteration the acceleration is constant, so all crossings are solved in closed form. The
+candidates are computed, the nearest in time is taken, the two segments up to that instant are emitted
+and the event is applied.
 
-Candidati:
+Candidates:
 
-1. **fine rampa**: `t + (target - v_lead) / a_lead`, se `a_lead != 0`
-2. **bite** della prossima passata: attraversamento della posizione della gabbia da parte
-   dell'estremita' guida, nel verso della passata. Solo se il verso della passata coincide con quello
-   corrente, non si sta invertendo, e la gabbia e' **ancora davanti**:
-   `direction * (x_gabbia - x_guida) > tolleranza`. Senza quest'ultima condizione, subito dopo un bite
-   l'estremita' guida si trova esattamente sulla gabbia e una seconda passata sullo stesso stand
-   morderebbe nello stesso istante.
-3. **tail-out** di ogni passata ingaggiata: attraversamento della posizione della gabbia da parte
-   dell'estremita' trascinata
-4. **evento di velocita'**: attraversamento della posizione di trigger da parte dell'estremita' guida,
-   nel verso dichiarato dall'evento. Un evento non si riattiva nello stesso istante in cui e' scattato;
-   gli eventi di sezione sono ignorati mentre si sta invertendo.
-5. **fine corsa**: attraversamento della posizione dell'avvolgitore da parte dell'estremita'
-   trascinata, solo quando non ci sono passate residue ne' gabbie ingaggiate
+1. **end of ramp**: `t + (target - v_lead) / a_lead`, when `a_lead != 0`
+2. **bite** of the next pass: crossing of the stand position by the leading extremity, in the direction
+   of the pass. Only when the direction of the pass matches the current one, no reversal is in
+   progress, and the stand is **still ahead**: `direction * (x_stand - x_leading) > tolerance`.
+   Without that last condition, right after a bite the leading extremity sits exactly on the stand and
+   a second pass on the same stand would bite at the very same instant.
+3. **tail-out** of every engaged pass: crossing of the stand position by the trailing extremity
+4. **speed event**: crossing of the trigger position by the leading extremity, in the direction
+   declared by the event. An event does not re-arm at the same instant at which it fired; section
+   events are ignored while a reversal is in progress.
+5. **braking point** of a reversal, see below
+6. **end of run**: crossing of the coiler position by the trailing extremity, only once no pass is
+   left and no stand is engaged
 
-Se non esiste alcun candidato la simulazione e' mal posta: se restano passate da eseguire, la prossima
-non e' raggiungibile nel verso indicato; altrimenti manca un comando di velocita' in coda al percorso.
-In entrambi i casi si termina con un errore esplicito, mai con un ciclo infinito.
+If no candidate exists the simulation is ill posed: when passes are left, the next one is not
+reachable in the direction given; otherwise a speed command is missing at the end of the route. Either
+way it terminates with an explicit error, never with an infinite loop.
 
-### Applicazione degli eventi
+### Applying the events
 
-**Fine rampa**: `v_lead = target`. Se si sta invertendo e il target era zero, il pezzo e' fermo: si
-avvia l'attesa del `reversing_delay` della prossima passata.
+**End of ramp**: `v_lead = target`. If braking towards a reversal and the target was zero, the piece is
+at rest: the wait for the `reversing_delay` of the next pass begins.
 
-**Bite** della passata `p`:
+**Bite** of pass `p`:
 
 ```
 lam     = lam * lambda(p)
-v_lead  = v_lead * lambda(p)      // resta continua l'estremita' trascinata
+v_lead  = v_lead * lambda(p)      // the trailing extremity stays continuous
 engaged = engaged + p
-target_nominale = v_exit(p)
-accel   = accelerazione della gabbia
+nominal_target = v_exit(p)
+accel   = acceleration of the stand
 ```
 
-Se la passata definisce uno zoom, si registra un evento di velocita' relativo con trigger a
-`x_gabbia + zoom_trigger`, verso avanti, valido anche durante la laminazione.
+If the pass defines a zoom, a relative speed event is registered with trigger at
+`x_stand + zoom_trigger`, forward direction, valid while rolling as well.
 
-**Tail-out** della passata `p`:
+**Tail-out** of pass `p`:
 
 ```
-lam = lam / lambda(p)             // resta continua l'estremita' guida
+lam = lam / lambda(p)             // the leading extremity stays continuous
 engaged = engaged - p
 ```
 
-Se non resta nulla di ingaggiato: si applica l'eventuale evento differito, poi, se la prossima passata
-ha verso opposto, si entra in inversione con `zoom_factor = 1`, accelerazione della gabbia appena
-liberata e punto di arresto
+If nothing is left engaged: the deferred event, if any, is applied; then, when the next pass has the
+opposite direction, the reversal begins with `zoom_factor = 1`, the acceleration of the stand just
+released, and stop point
 
 ```
-x_arresto = x_gabbia + direction * reversing_clearance
+x_stop = x_stand + direction * reversing_clearance
 ```
 
-dove `reversing_clearance` appartiene alla passata successiva, come il `reversing_delay`. Al tail-out
-l'estremita' trascinata si trova esattamente sulla gabbia, quindi la quota si misura da li'.
+where `reversing_clearance` belongs to the following pass, just like `reversing_delay`. At tail-out the
+trailing extremity sits exactly on the stand, so the clearance is measured from there.
 
-**Frenata mirata.** Finche' non si sta ancora frenando, a ogni iterazione si calcola la distanza di
-frenata `d = v^2 / (2a)` e il punto in cui la frenata deve iniziare, `x_frenata = x_arresto -
-direction * d`. Se l'estremita' trascinata non lo ha ancora raggiunto si aggiunge un candidato di
-attraversamento; se lo ha gia' superato si frena subito e, quando la quota richiesta e' maggiore di
-zero, si segnala che la quota ottenuta e' maggiore di quella chiesta. Con quota nulla la richiesta e'
-"fermarsi appena possibile" e non c'e' nulla da segnalare.
+**Targeted braking.** While braking has not started yet, at every iteration the braking distance
+`d = v^2 / (2a)` is computed together with the point at which braking must begin,
+`x_brake = x_stop - direction * d`. If the trailing extremity has not reached it yet a crossing
+candidate is added; if it has already passed it, braking starts immediately and, when the requested
+clearance is greater than zero, the achieved clearance is reported as larger than the requested one.
+With a zero clearance the request is "stop as soon as possible" and there is nothing to report.
 
-Dopo il tail-out il corpo e' rigido, `lam = 1`, quindi le due estremita' traslano insieme e la
-distanza di frenata e' la stessa per entrambe.
+After tail-out the body is rigid, `lam = 1`, so both extremities translate together and the braking
+distance is the same for either of them.
 
-**Evento di velocita'**: se ci sono gabbie ingaggiate e l'evento non e' marcato valido in laminazione,
-viene messo da parte come differito, l'ultimo che arriva sostituisce il precedente. Altrimenti, se
-l'evento e' relativo si moltiplica `zoom_factor`, se e' assoluto si assegna `target_nominale`.
+**Speed event**: if stands are engaged and the event is not marked valid while rolling, it is set aside
+as deferred, the last one arriving replacing the previous. Otherwise, a relative event multiplies
+`zoom_factor` and an absolute one assigns `nominal_target`.
 
-**Attesa di inversione**: si emettono due segmenti a velocita' nulla per la durata del
-`reversing_delay`, poi si inverte `direction`, si assegna la velocita' di avvicinamento della prossima
-passata e l'accelerazione della sua gabbia.
+**Reversal wait**: two zero velocity segments are emitted for the duration of the `reversing_delay`,
+then `direction` is flipped, the approach speed of the next pass is assigned together with the
+acceleration of its stand.
 
-## 5. Post-elaborazione
+## 5. Post-processing
 
-* **testa virtuale**: la traiettoria della testa cosi' come e' stata integrata, non vincolata
-  dall'avvolgitore. E' quella che comanda il trigger dello zoom rolling.
-* **testa fisica**: la testa virtuale limitata superiormente alla posizione dell'avvolgitore. Il
-  troncamento introduce un nuovo nodo all'istante di attraversamento, calcolato in forma chiusa.
-* **verifica di conservazione**: la lunghezza finale integrata deve coincidere con
-  `L_bramma * (h_bramma * w_bramma) / (h_finale * w_finale)`. Con questo modello coincidono per
-  costruzione: uno scarto segnala un errore di input o di implementazione.
+* **virtual head**: the head trajectory exactly as integrated, unconstrained by the coiler. This is the
+  one driving the zoom rolling trigger.
+* **physical head**: the virtual head capped at the coiler position. The capping introduces a new knot
+  at the crossing instant, computed in closed form.
+* **conservation check**: the integrated final length must match
+  `L_slab * (h_slab * w_slab) / (h_final * w_final)`. With this model they match by construction: a
+  deviation signals an input or implementation error.
 
-## 6. Bilancio di massa nel tandem
+## 6. Mass flow balance in the tandem
 
-Nel finitore il nastro fra due gabbie ha lunghezza fissa, quindi il bilancio di massa non e' una
-verifica ma un vincolo: velocita' inserite incoerenti descriverebbero un moto impossibile. Per ogni
-gruppo di gabbie che porta la stessa etichetta di gruppo e contiene una passata marcata master:
-
-```
-flusso  = v_exit(master) * h_out(master) * w_out(master)
-v_exit(i) = flusso / (h_out(i) * w_out(i))
-```
-
-Gli scostamenti rispetto ai valori inseriti vengono riportati, non silenziati.
-
-## 7. Gap fra pezzi
-
-L'estremita' posteriore di un pezzo e' `min(testa, coda)` e quella anteriore `max(testa, coda)`.
-Poiche' la testa materiale resta sempre l'estremita' geometricamente piu' a valle, anche durante le
-passate inverse, le due espressioni si riducono rispettivamente alla coda del pezzo davanti e alla
-testa di quello dietro. L'invariante `x_head >= x_tail` va verificato, non assunto.
+In the finishing mill the strip between two stands has a fixed length, so the mass flow balance is not
+a check but a constraint: inconsistent input speeds would describe an impossible motion. For every
+group of stands carrying the same group label and containing a pass marked as master:
 
 ```
-gap(t) = coda_davanti(t) - testa_dietro(t)
+flux      = v_exit(master) * h_out(master) * w_out(master)
+v_exit(i) = flux / (h_out(i) * w_out(i))
 ```
 
-La differenza di due traiettorie a segmenti e' una funzione **quadratica a tratti**: si fondono i nodi
-delle due traiettorie e su ogni intervallo si ottiene
+Deviations from the entered values are reported, not silenced.
+
+## 7. Gap between pieces
+
+The rear extremity of a piece is `min(head, tail)` and the front one `max(head, tail)`. Since the
+material head always remains the extremity furthest downstream, including during reverse passes, those
+two expressions reduce respectively to the tail of the piece in front and the head of the one behind.
+The invariant `x_head >= x_tail` must be verified, not assumed.
+
+```
+gap(t) = tail_front(t) - head_rear(t)
+```
+
+The difference between two segmented trajectories is a **piecewise quadratic** function: the knots of
+the two trajectories are merged and on each interval
 
 ```
 f(t) = c0 + c1*(t - t0) + c2*(t - t0)^2
 c0 = xA(t0) - xB(t0)      c1 = vA(t0) - vB(t0)      c2 = (aA - aB) / 2
 ```
 
-Il minimo si cerca sugli estremi di ogni tratto e sul vertice, quando cade all'interno. Il primo
-istante in cui il gap scende sotto una soglia si ottiene risolvendo `f(t) = soglia` su ogni tratto.
-Entrambi sono esatti: non c'e' campionamento.
+The minimum is searched at the ends of each piece and at the vertex, when it falls inside. The first
+instant at which the gap drops below a threshold is obtained by solving `f(t) = threshold` on each
+piece. Both are exact: there is no sampling.
 
-Il gap temporale al punto critico e' l'intervallo fra il passaggio della coda del pezzo davanti e
-l'arrivo della testa di quello dietro nella stessa posizione, ottenuto cercando l'ultimo
-attraversamento della posizione critica da parte della coda del pezzo davanti prima dell'istante
-critico.
+The time gap at the critical point is the interval between the tail of the piece in front passing a
+position and the head of the one behind reaching it, obtained by looking for the last crossing of the
+critical position by the tail of the front piece before the critical instant.
 
-Vanno confrontate tutte le coppie di pezzi che coesistono in linea, non solo quelle adiacenti: con lo
-sbozzatore reversibile il vincolo cade spesso fra il pezzo N e N+2.
+Every pair of pieces that coexists on the line must be compared, not only the adjacent ones: with a
+reversing roughing mill the constraint often falls between piece N and N+2.
 
-## 8. Studi sul pacing
+## 8. Pacing studies
 
-In modalita' open-loop i pezzi sono disaccoppiati: ogni prodotto si simula una volta sola e le copie si
-ottengono traslando le traiettorie nel tempo di `i * pacing`.
+In open-loop mode the pieces are decoupled: every product is simulated once and the copies are obtained
+by shifting the trajectories in time by `i * pacing`.
 
-* **curva gap-vs-pacing**: per ogni valore della scansione si costruisce la sequenza e si prende il
-  minimo su tutte le coppie.
-* **pacing minimo ammissibile**: con le passate reversibili il gap minimo **non e' monotono** nel
-  pacing, quindi non si applica una bisezione cieca. Si scandisce la curva, si prende l'ultimo punto
-  non ammissibile e si raffina per bisezione l'intervallo immediatamente successivo.
-* **robustezza**: si perturbano le velocita' di passata entro una tolleranza, i tempi morti e gli
-  istanti di rilascio con dispersione gaussiana, si riapplica il bilancio di massa del tandem, si
-  risimula ogni pezzo in modo indipendente e si conta la frazione di run che viola la soglia. La
-  perturbazione va applicata **prima** del bilancio di massa, cosi' nel tandem conta la sola
-  perturbazione della gabbia master e la schedule resta fisica.
+* **gap versus pacing curve**: for every value of the scan the sequence is built and the minimum over
+  all pairs is taken.
+* **minimum feasible pacing**: with reverse passes the minimum gap is **not monotonic** in the pacing,
+  so a blind bisection does not apply. The curve is scanned, the last infeasible point is taken and the
+  interval immediately after it is refined by bisection.
+* **robustness**: pass speeds are perturbed within a tolerance, dead times and release instants with a
+  Gaussian dispersion, the tandem mass flow balance is re-applied, every piece is re-simulated
+  independently and the fraction of runs violating the threshold is counted. The perturbation must be
+  applied **before** the mass flow balance, so that in the tandem only the perturbation of the master
+  stand matters and the schedule stays physical.
 
-## 9. Costi
+## 9. Costs
 
-Una simulazione completa di un impianto con tredici passate costa circa 0,4 ms e produce una
-cinquantina di segmenti per estremita'. Una scansione di un centinaio di valori di pacing costa
-qualche decina di millisecondi, un Monte Carlo di diecimila run qualche secondo. Il collo di bottiglia
-non e' il calcolo ma il disegno: campionare le traiettorie a passo fisso produrrebbe milioni di punti
-e renderebbe inutilizzabile l'interfaccia, mentre i segmenti si disegnano con i soli nodi, suddividendo
-unicamente i tratti accelerati.
+A complete simulation of a mill with thirteen passes costs about 0.4 ms and produces roughly fifty
+segments per extremity. A scan of a hundred pacing values costs a few tens of milliseconds, a Monte
+Carlo of ten thousand runs a few seconds. The bottleneck is not the computation but the drawing:
+sampling the trajectories at a fixed step would produce millions of points and make the interface
+unusable, whereas segments are drawn using their knots alone, subdividing only the accelerated
+stretches.

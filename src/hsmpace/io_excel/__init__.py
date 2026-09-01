@@ -1,4 +1,4 @@
-"""Lettura e scrittura dei file Excel di input e output."""
+"""Reading and writing of the Excel input and output files."""
 
 from .reader import ValidationError, ValidationIssue, read_case
 from .results import write_results

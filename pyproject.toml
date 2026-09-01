@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hsmpace"
 version = "0.1.0"
-description = "Diagramma spazio-tempo e analisi del pacing per Hot Strip Mill"
+description = "Space-time diagram and pacing analysis for a Hot Strip Mill"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

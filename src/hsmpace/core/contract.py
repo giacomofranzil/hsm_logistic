@@ -1,8 +1,8 @@
-"""Contratto JSON di ingresso e uscita del nucleo di calcolo.
+"""JSON contract for the input and output of the calculation core.
 
-E' la superficie che un Livello 2 in C++ o C# puo' usare da subito invocando
-l'eseguibile, e la specifica da rispettare quando il core verra' riscritto in
-quei linguaggi. Vedi docs/algorithm-spec.md.
+This is the surface a Level 2 system written in C++ or C# can use right away by
+invoking the executable, and the specification to honour when the core is
+rewritten in those languages. See docs/algorithm-spec.md.
 """
 
 from __future__ import annotations
