@@ -6,7 +6,7 @@ The tool draws the head and tail position of the pieces travelling along the lin
 sufficient gap always remains between the tail of one piece and the head of the next, and determines
 the minimum cadence at which pieces can enter the process.
 
-![diagram](docs/img/diagramma.png)
+![space-time diagram](docs/img/space-time-diagram.png)
 
 ## What it does
 
@@ -20,7 +20,7 @@ the minimum cadence at which pieces can enter the process.
 * **Minimum gap versus pacing curve**, from which the minimum feasible cadence and the margin being
   worked with are read directly.
 
-  ![pacing curve](docs/img/pacing.png)
+  ![pacing curve](docs/img/pacing-curve.png)
 
 * **Monte Carlo robustness**: probability of a violation once pass speeds, dead times and release
   instants have the dispersion they have in the plant.
