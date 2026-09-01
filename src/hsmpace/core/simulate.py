@@ -131,6 +131,12 @@ def simulate_piece(
     zoom_factor = 1.0
     deferred: SpeedEvent | None = None
     reversing = False
+    braking = False
+    stop_target = 0.0
+    stop_stand_x = 0.0
+    stop_stand_id = ""
+    stop_pass_no = 0
+    stop_clearance = 0.0
     waiting_until: float | None = None
     fired: dict[str, float] = {}
 
@@ -166,6 +172,7 @@ def simulate_piece(
             nominal_target = nxt.approach_v if nxt.approach_v is not None else nxt.v_entry
             accel = line.get(nxt.equipment_id).accel
             reversing = False
+            braking = False
             events.append(
                 SimEvent(t, "reverse_end", nxt.equipment_id, x_head, f"verso passata {nxt.pass_no}")
             )
@@ -187,8 +194,36 @@ def simulate_piece(
             lead_x, lead_v, lead_a = x_tail, v_t, a_t
             trail_x, trail_v, trail_a = x_head, v_h, a_h
 
+        # inversione: il pezzo deve fermarsi con l'estremita' piu' vicina alla
+        # gabbia a `reversing_clearance` metri da essa. Si prosegue a velocita'
+        # costante fino al punto in cui la decelerazione disponibile porta
+        # esattamente li', poi si frena.
+        if reversing and not braking:
+            d_brake = v_lead * v_lead / (2.0 * accel) if accel > 0 else 0.0
+            x_brake = stop_target - direction * d_brake
+            if direction * (x_brake - trail_x) <= 1e-9:
+                # con sgombero nullo la richiesta e' "fermarsi appena possibile",
+                # quindi la distanza di frenata non e' uno scostamento da segnalare
+                if stop_clearance > 1e-9 and direction * (trail_x - x_brake) > 1e-6:
+                    ottenuta = abs(trail_x + direction * d_brake - stop_stand_x)
+                    warnings.append(
+                        f"passata {stop_pass_no}: richiesti {stop_clearance:.1f} m di sgombero da "
+                        f"{stop_stand_id}, raggiungibili {ottenuta:.1f} m. Con {v_lead:.2f} m/s e "
+                        f"{accel:.2f} m/s2 il pezzo non riesce a fermarsi prima."
+                    )
+                braking = True
+                nominal_target = 0.0
+                continue
+
         horizon = min(t + _HORIZON, t_max)
         candidates: list[tuple[float, str, object]] = []
+
+        if reversing and not braking:
+            t_hit = solve_crossing(
+                t, trail_x, trail_v, trail_a, x_brake, t, horizon, direction
+            )
+            if t_hit is not None:
+                candidates.append((t_hit, "brake", None))
 
         if a_lead != 0.0:
             candidates.append((t + (v_target - v_lead) / a_lead, "ramp", None))
@@ -260,9 +295,14 @@ def simulate_piece(
             v_lead = max(v_lead + a_lead * dt, 0.0)
             t = t_next
 
+        if action == "brake":
+            braking = True
+            nominal_target = 0.0
+            continue
+
         if action == "ramp":
             v_lead = v_target
-            if reversing and v_target <= _V_EPS:
+            if braking and v_target <= _V_EPS:
                 nxt = passes[next_idx]
                 waiting_until = t + nxt.reversing_delay
                 events.append(
@@ -338,15 +378,30 @@ def simulate_piece(
                         )
                     )
                 if next_idx < len(passes) and passes[next_idx].direction != direction:
+                    nxt = passes[next_idx]
                     reversing = True
-                    nominal_target = 0.0
+                    braking = False
                     zoom_factor = 1.0
                     accel = line.get(rp.equipment_id).accel
+                    # al tail-out l'estremita' trascinata e' esattamente sulla gabbia
+                    stop_stand_x = x_stand
+                    stop_stand_id = rp.equipment_id
+                    stop_pass_no = nxt.pass_no
+                    stop_clearance = nxt.reversing_clearance
+                    stop_target = x_stand + direction * stop_clearance
                     events.append(
-                        SimEvent(t, "reverse_start", rp.equipment_id, x_stand, "decelerazione")
+                        SimEvent(
+                            t,
+                            "reverse_start",
+                            rp.equipment_id,
+                            x_stand,
+                            f"sgombero richiesto {stop_clearance:.1f} m"
+                            if stop_clearance
+                            else "arresto alla minima distanza di frenata",
+                        )
                     )
-                    if v_lead <= _V_EPS:
-                        nxt = passes[next_idx]
+                    if v_lead <= _V_EPS and stop_clearance <= 1e-9:
+                        braking = True
                         waiting_until = t + nxt.reversing_delay
             continue
 

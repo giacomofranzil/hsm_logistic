@@ -95,6 +95,10 @@ class RollingPass:
     w_out: float
     v_exit: float
     reversing_delay: float = 0.0
+    reversing_clearance: float = 0.0
+    """Distanza fra la gabbia e l'estremita' piu' vicina del pezzo quando questo
+    si ferma per invertire, prima di questa passata. Con zero il pezzo si ferma
+    appena la decelerazione lo consente, cioe' a `v^2/(2a)` dalla gabbia."""
     approach_v: float | None = None
     master: bool = False
     zoom_pct: float = 0.0
@@ -363,6 +367,12 @@ def validate_case(case: Case) -> list[Problem]:
                 f"prodotto {product.id}: la prima passata deve essere in verso 'fwd', "
                 "il pezzo lascia il forno andando avanti",
             )
+        if product.passes[-1].direction != FWD:
+            add(
+                f"pass:{product.id}:{product.passes[-1].pass_no}",
+                f"prodotto {product.id}: l'ultima passata deve essere in verso 'fwd', "
+                "altrimenti il pezzo resta in moto all'indietro e non raggiunge l'avvolgitore",
+            )
 
         h_prev = product.slab_thk
         w_prev = product.slab_wid
@@ -393,6 +403,8 @@ def validate_case(case: Case) -> list[Problem]:
                 )
             if rp.v_exit <= 0:
                 add(ptag, f"{head}: velocita' non positiva")
+            if rp.reversing_clearance < 0:
+                add(ptag, f"{head}: la quota di sgombero non puo' essere negativa")
             if (
                 prev is not None
                 and prev.equipment_id == rp.equipment_id

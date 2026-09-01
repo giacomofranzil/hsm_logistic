@@ -64,12 +64,18 @@ PASS_COLUMNS = [
     ("w_out_mm", "Larghezza in uscita, mm"),
     ("v_exit_mps", "Velocita' del materiale in uscita gabbia, m/s"),
     ("reversing_delay_s", "Tempo morto prima di questa passata se cambia il verso, s"),
+    ("reversing_clearance_m", "Distanza fra gabbia ed estremita' piu' vicina alla fermata "
+     "per invertire, m (vuoto = minima distanza di frenata)"),
     ("approach_v_mps", "Velocita' di avvicinamento dopo l'inversione (vuoto = v_ingresso)"),
     ("master", "SI sulla gabbia che detta il bilancio di massa del gruppo tandem"),
     ("zoom_pct", "Zoom rolling: incremento di velocita' in %"),
     ("zoom_trigger_m", "Zoom: avanzamento della testa virtuale oltre questa gabbia, m"),
     ("zoom_accel_mps2", "Zoom: accelerazione, m/s2 (vuoto = quella dell'asse)"),
 ]
+
+# colonne introdotte dopo la prima versione dello schema: la loro assenza non
+# invalida un workbook gia' in circolazione
+OPTIONAL_COLUMNS = {"reversing_clearance_m"}
 
 SIM_KEYS = [
     ("pacing_s", 170.0, "Cadenza nominale fra un pezzo e il successivo, s"),
@@ -120,9 +126,19 @@ GUIDE_TEXT = [
     ("", False),
     ("Sbozzatura reversibile", True),
     (
-        "Dopo il tail-out il pezzo decelera fino a fermarsi, attende il reversing "
-        "delay della passata successiva e riparte nel verso opposto. Il reversing "
-        "delay deve gia' comprendere screwdown e centraggio sideguides.",
+        "Dopo il tail-out il pezzo prosegue fino a portare l'estremita' piu' vicina "
+        "alla gabbia a reversing_clearance_m metri da essa, dove si ferma, attende il "
+        "reversing delay della passata successiva e riparte nel verso opposto. Il "
+        "reversing delay deve gia' comprendere screwdown e centraggio sideguides, e la "
+        "quota di sgombero va misurata dalla gabbia, quindi va aumentata se il vincolo "
+        "vero e' l'edger che sta qualche metro prima.",
+        False,
+    ),
+    (
+        "Lasciando vuota la quota di sgombero il pezzo si ferma appena la "
+        "decelerazione lo consente, cioe' a v^2/(2a) dalla gabbia. Se la quota "
+        "richiesta e' piu' corta di quella distanza il tool lo segnala invece di "
+        "fingere una frenata impossibile.",
         False,
     ),
     ("", False),

@@ -126,8 +126,25 @@ engaged = engaged - p
 ```
 
 Se non resta nulla di ingaggiato: si applica l'eventuale evento differito, poi, se la prossima passata
-ha verso opposto, si entra in inversione con `target_nominale = 0`, `zoom_factor = 1` e accelerazione
-della gabbia appena liberata.
+ha verso opposto, si entra in inversione con `zoom_factor = 1`, accelerazione della gabbia appena
+liberata e punto di arresto
+
+```
+x_arresto = x_gabbia + direction * reversing_clearance
+```
+
+dove `reversing_clearance` appartiene alla passata successiva, come il `reversing_delay`. Al tail-out
+l'estremita' trascinata si trova esattamente sulla gabbia, quindi la quota si misura da li'.
+
+**Frenata mirata.** Finche' non si sta ancora frenando, a ogni iterazione si calcola la distanza di
+frenata `d = v^2 / (2a)` e il punto in cui la frenata deve iniziare, `x_frenata = x_arresto -
+direction * d`. Se l'estremita' trascinata non lo ha ancora raggiunto si aggiunge un candidato di
+attraversamento; se lo ha gia' superato si frena subito e, quando la quota richiesta e' maggiore di
+zero, si segnala che la quota ottenuta e' maggiore di quella chiesta. Con quota nulla la richiesta e'
+"fermarsi appena possibile" e non c'e' nulla da segnalare.
+
+Dopo il tail-out il corpo e' rigido, `lam = 1`, quindi le due estremita' traslano insieme e la
+distanza di frenata e' la stessa per entrambe.
 
 **Evento di velocita'**: se ci sono gabbie ingaggiate e l'evento non e' marcato valido in laminazione,
 viene messo da parte come differito, l'ultimo che arriva sostituisce il precedente. Altrimenti, se

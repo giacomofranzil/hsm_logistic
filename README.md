@@ -81,8 +81,14 @@ gratuiti. I dettagli sono in [docs/algorithm-spec.md](docs/algorithm-spec.md).
 
 Altre convenzioni che vale la pena conoscere:
 
-* **Inversioni**: dopo il tail-out il pezzo decelera fino a fermarsi, attende il `reversing delay` e
-  riparte nel verso opposto. Il delay comprende gia' screwdown e centraggio sideguides.
+* **Inversioni**: dopo il tail-out il pezzo prosegue fino a portare l'estremita' piu' vicina alla
+  gabbia alla quota di sgombero richiesta (`reversing_clearance_m`), li' si ferma, attende il
+  `reversing delay` e riparte nel verso opposto. Il delay comprende gia' screwdown e centraggio
+  sideguides; la quota va misurata dalla gabbia, quindi va aumentata se il vincolo vero e' l'edger.
+  Lasciandola vuota il pezzo si ferma appena la decelerazione lo consente, a `v^2/(2a)` dalla gabbia,
+  e se la quota richiesta e' piu' corta di quella distanza il tool lo segnala invece di fingere una
+  frenata impossibile. Non e' un dettaglio: sull'impianto di esempio, passando da 0 a 20 m di
+  sgombero, il pacing minimo sale da 105 a 149 secondi.
 * **Zoom rolling**: incremento percentuale di velocita' che parte quando la testa ha superato di una
   distanza data l'ultima gabbia. Il trigger usa la **testa virtuale**, cioe' ignora il fatto che la
   testa si ferma all'avvolgitore: se cade oltre l'avvolgitore lo zoom parte dopo qualche avvolgimento,

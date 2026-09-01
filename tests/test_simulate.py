@@ -140,6 +140,63 @@ def test_inversione_rispetta_il_reversing_delay():
     assert math.isclose(res.head.v_at(0.5 * (wait.t + resume.t)), 0.0, abs_tol=1e-9)
 
 
+def test_lo_sgombero_per_invertire_e_rispettato():
+    """Il pezzo si ferma con l'estremita' piu' vicina alla quota richiesta."""
+    line = _line([("R", 80.0)], coiler_x=400.0)
+    case = _case(
+        line,
+        [
+            _pass(1, "R", FWD, 100.0, 80.0, 3.0),
+            _pass(2, "R", REV, 80.0, 60.0, 3.0, reversing_delay=4.0, reversing_clearance=12.0),
+            _pass(3, "R", FWD, 60.0, 40.0, 3.0, reversing_delay=4.0, reversing_clearance=12.0),
+        ],
+    )
+    res = simulate_piece(case, case.products[0])
+    assert res.warnings == ()
+
+    attesa = next(e for e in res.events if e.kind == "reverse_wait")
+    # dopo una passata diretta l'estremita' vicina alla gabbia e' la coda
+    assert res.tail.x_at(attesa.t) == pytest.approx(92.0, abs=1e-6)
+
+    # dopo la passata inversa il pezzo sta a monte: la piu' vicina e' la testa
+    seconda = [e for e in res.events if e.kind == "reverse_wait"][1]
+    assert res.head.x_at(seconda.t) == pytest.approx(68.0, abs=1e-6)
+
+
+def test_sgombero_non_raggiungibile_viene_segnalato():
+    """Frenando a 1 m/s2 da 3 m/s servono 4,5 m: chiederne 2 non e' possibile."""
+    line = _line([("R", 80.0)], coiler_x=400.0)
+    case = _case(
+        line,
+        [
+            _pass(1, "R", FWD, 100.0, 80.0, 3.0),
+            _pass(2, "R", REV, 80.0, 60.0, 3.0, reversing_delay=4.0, reversing_clearance=2.0),
+            _pass(3, "R", FWD, 60.0, 40.0, 3.0, reversing_delay=4.0, reversing_clearance=2.0),
+        ],
+    )
+    res = simulate_piece(case, case.products[0])
+
+    assert any("sgombero" in w and "4.5 m" in w for w in res.warnings)
+    attesa = next(e for e in res.events if e.kind == "reverse_wait")
+    assert res.tail.x_at(attesa.t) == pytest.approx(84.5, abs=1e-6)
+
+
+def test_senza_sgombero_ci_si_ferma_alla_distanza_di_frenata():
+    line = _line([("R", 80.0)], coiler_x=400.0)
+    case = _case(
+        line,
+        [
+            _pass(1, "R", FWD, 100.0, 80.0, 3.0),
+            _pass(2, "R", REV, 80.0, 60.0, 3.0, reversing_delay=4.0),
+            _pass(3, "R", FWD, 60.0, 40.0, 3.0, reversing_delay=4.0),
+        ],
+    )
+    res = simulate_piece(case, case.products[0])
+    attesa = next(e for e in res.events if e.kind == "reverse_wait")
+    assert res.tail.x_at(attesa.t) == pytest.approx(84.5, abs=1e-6)
+    assert res.warnings == ()
+
+
 def test_in_passata_inversa_il_pezzo_torna_indietro():
     line = _line([("R", 80.0)], coiler_x=400.0)
     case = _case(
@@ -276,3 +333,17 @@ def test_prima_passata_inversa_rifiutata():
     case = _case(line, [_pass(1, "R", REV, 100.0, 50.0, 4.0)])
     problems = [p.message for p in validate_case(case)]
     assert any("prima passata" in p for p in problems)
+
+
+def test_ultima_passata_inversa_rifiutata():
+    """Chiudendo all'indietro il pezzo non raggiungerebbe mai l'avvolgitore."""
+    line = _line([("R", 50.0)])
+    case = _case(
+        line,
+        [
+            _pass(1, "R", FWD, 100.0, 80.0, 3.0),
+            _pass(2, "R", REV, 80.0, 60.0, 3.0, reversing_delay=4.0),
+        ],
+    )
+    problems = [p.message for p in validate_case(case)]
+    assert any("ultima passata" in p for p in problems)

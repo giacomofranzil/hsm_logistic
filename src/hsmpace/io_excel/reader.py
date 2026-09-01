@@ -77,7 +77,7 @@ class _Table:
                 header[str(value).strip()] = col
         self.header = header
         for name in columns:
-            if name not in header:
+            if name not in header and name not in S.OPTIONAL_COLUMNS:
                 issues.add(self.name, "1", f"colonna mancante: {name!r}")
 
     def rows(self) -> list[int]:
@@ -388,6 +388,10 @@ def _read_products(
             v_exit=passes_table.number(row, "v_exit_mps", minimum=1e-6) or 0.0,
             reversing_delay=passes_table.number(
                 row, "reversing_delay_s", required=False, default=0.0, minimum=0.0
+            )
+            or 0.0,
+            reversing_clearance=passes_table.number(
+                row, "reversing_clearance_m", required=False, default=0.0, minimum=0.0
             )
             or 0.0,
             approach_v=passes_table.number(

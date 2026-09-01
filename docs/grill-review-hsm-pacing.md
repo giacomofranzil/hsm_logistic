@@ -603,7 +603,37 @@ Vale la pena notare cosa questo implica: **il pacing e' limitato da un'interfere
 intuizione colloca dove effettivamente sta**. Chi guarda l'impianto pensa alla cesoia o all'ingresso
 finitore, non a due metri dal forno.
 
-### 15.4 Cosa manca ancora, in ordine di utilita'
+### 15.4 Quota di sgombero all'inversione: parametro aggiunto dopo la review
+
+Nella prima stesura il punto in cui il pezzo si ferma per invertire **non era un input**: il pezzo
+iniziava a decelerare al tail-out e si fermava dove capitava, cioe' alla distanza di frenata
+`v^2/(2a)` dalla gabbia. Nell'esempio faceva 3,1 m alla prima passata, un numero che nasce
+dall'azionamento e non da una scelta di processo. Sbagliato: in impianto la quota di sgombero e' un
+dato, deve tenere conto anche dell'edger, e pesa sul tempo ciclo.
+
+Ora e' la colonna `reversing_clearance_m` del foglio `PassSchedule`, con la stessa convenzione del
+`reversing_delay_s`: appartiene alla passata che segue l'inversione. Il pezzo prosegue a velocita'
+costante e frena in modo da fermarsi esattamente li'. Se la quota richiesta e' piu' corta della
+distanza di frenata, il tool riporta la quota effettivamente ottenuta invece di fingere una frenata
+impossibile; lasciando la cella vuota il comportamento resta "fermarsi appena possibile".
+
+Quanto pesa, sull'impianto di esempio:
+
+| Sgombero | Ciclo del pezzo | Pacing minimo |
+|---|---|---|
+| 0 m (minimo di frenata) | 232,8 s | 105,3 s |
+| 5 m | 234,7 s | 107,2 s |
+| 10 m | 248,2 s | 121,8 s |
+| 20 m | 272,5 s | 148,6 s |
+
+Quaranta secondi di pacing fra l'estremo inferiore e quello superiore, cioe' circa il 40% di
+produttivita': era un parametro di primo ordine mascherato da dettaglio implementativo.
+
+Nel realizzarlo e' emersa anche una regola strutturale che mancava: una schedule che **termina con una
+passata inversa** lascia il pezzo in moto all'indietro e non raggiunge mai l'avvolgitore. Ora e'
+rifiutata in validazione, come gia' avveniva per la prima passata inversa.
+
+### 15.5 Cosa manca ancora, in ordine di utilita'
 
 1. **Validazione su tracking reale**: il formato CSV e il confronto nella UI ci sono, mancano i dati.
    Finche' non si sovrappone il simulato al misurato, il pacing minimo resta un numero da modello.
