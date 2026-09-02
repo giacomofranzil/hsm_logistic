@@ -142,7 +142,7 @@ def write_case(case: Case, path: str | Path, include_data: bool = True) -> Path:
                     rp.w_in,
                     rp.w_out,
                     rp.v_exit_input if rp.v_exit_input is not None else rp.v_exit,
-                    rp.reversing_delay,
+                    rp.reversing_delay or None,
                     rp.reversing_clearance or None,
                     rp.approach_v,
                     _bool(rp.master) if rp.master else "",

@@ -628,7 +628,46 @@ While implementing it, a missing structural rule also surfaced: a schedule that 
 pass** leaves the piece moving backwards and never reaching the coiler. It is now rejected in validation,
 as was already the case for a reverse first pass.
 
-### 15.5 What is still missing, in order of usefulness
+### 15.5 Second review of the input file, 2 September
+
+Reading the workbook raised five questions, and four of them turned out to be real behaviours the
+guide did not explain rather than misunderstandings.
+
+**The `group` column is functional, not informative.** It is the switch that enables the tandem mass
+flow balance. Emptying it does not raise anything, it simply goes back to using the seven entered
+speeds verbatim, that is it silently allows a non physical schedule in the finishing mill. Now
+documented in the guide together with the values and the meaning of the `kind` column.
+
+**One semantics for speed changes.** The distance written in a section is now the position where the
+target must be **reached**, not where the ramp starts, and the ramp is anticipated accordingly. This
+makes the tool consistent with the reversal stop, which already worked that way, so there is one rule
+to remember instead of two. Two consequences worth stating: a ramp is never planned across a rolling
+pass, because the bite would reassign the speed anyway, and when only the anticipation reaches back
+into the pass the ramp does start during rolling, which is a real manoeuvre, and is reported.
+
+**Zoom rolling keeps the opposite convention on purpose.** Its trigger is where the acceleration
+starts, because that is how the offline model defines it. Being the one exception, it is called out
+explicitly in the guide.
+
+**Acceleration had no rule, now it has one.** It used to be whatever the last device to take command
+had set, which meant the transfer table inherited the acceleration of the roughing stand. Now: the
+value next to a speed change applies to that ramp only, the stand governs while the piece is gripped,
+the section or the global default governs while it is free. As a side effect the acceleration on the
+layout is read only on `stand` rows and on the `coiler` row; on `start` and `marker` rows it was being
+ignored, so the template now leaves it blank there.
+
+**The reversal convention was backwards.** The delay and the clearance now belong to the pass the
+reversal **follows**, so the schedule reads downwards as "finish this pass, back off, wait, then go the
+other way". The approach speed stays on the row of the pass it approaches, by explicit preference. A
+value written where no reversal follows is reported as a non blocking warning.
+
+**New: the strip slows down before the coiler**, so that the tail arrives at a configurable final
+speed using the deceleration declared on the coiler row. Here the arithmetic of the example did not
+work out: from 13.5 m/s over the 107 m of run-out table, 0.3 m/s2 would land the tail at 10.9 m/s and
+0.85 m/s2 would be needed to reach 1 m/s. The template keeps 0.3 as the default and the example mill
+uses 0.9, so that the shipped example does not open with a permanent warning.
+
+### 15.6 What is still missing, in order of usefulness
 
 1. **Validation on real tracking**: the CSV format and the comparison in the UI are there, the data is
    not. Until the simulated is overlaid on the measured, the minimum pacing stays a number from a model.
