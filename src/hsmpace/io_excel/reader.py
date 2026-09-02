@@ -6,7 +6,7 @@ rejected with an understandable message, never with a traceback.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -228,11 +228,16 @@ def read_case(path: str | Path) -> Case:
         info=info,
     )
 
+    remarks: list[str] = []
     for problem in validate_case(case):
-        sheet, cell = locations.get(problem.locator, ("modello", ""))
-        issues.add(sheet, cell, problem.message)
+        sheet, cell = locations.get(problem.locator, ("model", ""))
+        where = f"{sheet}!{cell}" if cell else sheet
+        if problem.is_warning:
+            remarks.append(f"{where}: {problem.message}")
+        else:
+            issues.add(sheet, cell, problem.message)
     issues.raise_if_any()
-    return case
+    return replace(case, warnings=tuple(remarks))
 
 
 def _read_layout(
@@ -300,6 +305,9 @@ def _read_sections(
             x_start = offset
 
         length = table.number(row, "length_m", minimum=1e-6) or 0.0
+        section_accel = table.number(
+            row, "accel_mps2", required=False, default=None, minimum=1e-6
+        )
         direction = table.direction(row, "direction")
         during_pass = table.flag(row, "during_pass", default=False)
 
@@ -352,6 +360,7 @@ def _read_sections(
                 x_start=x_start,
                 length=length,
                 label=table.text(row, "label", required=False),
+                accel=section_accel,
                 events=tuple(events),
             )
         )
@@ -502,4 +511,6 @@ def _read_settings(
         mc_seed=int(num("mc_seed", defaults.mc_seed)),
         max_time=num("max_time_s", defaults.max_time),
         time_axis_down=flag("time_axis_down", defaults.time_axis_down),
+        table_accel=num("table_accel_mps2", defaults.table_accel),
+        coiler_v_final=num("coiler_v_final_mps", defaults.coiler_v_final),
     )

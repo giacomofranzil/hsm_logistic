@@ -82,18 +82,28 @@ costs about 0.4 ms, which makes the pacing scan and the Monte Carlo essentially 
 
 Other conventions worth knowing:
 
-* **Reversals**: after tail-out the piece keeps going until the extremity closest to the stand reaches
-  the requested clearance (`reversing_clearance_m`), stops there, waits for the `reversing delay` and
-  restarts in the opposite direction. The delay already includes screwdown and side guide centring;
-  the clearance is measured from the stand, so increase it if the real constraint is the edger.
-  Leaving it empty makes the piece stop as soon as the deceleration allows, at `v^2/(2a)` from the
-  stand, and if the requested clearance is shorter than that distance the tool reports it rather than
-  faking an impossible braking. This is not a detail: on the example mill, going from 0 to 20 m of
-  clearance takes the minimum pacing from 105 to 149 seconds.
-* **Zoom rolling**: a percentage speed increase starting when the head has travelled a given distance
-  past the last stand. The trigger uses the **virtual head**, that is it ignores the fact that the head
-  stops at the coiler: if it falls beyond the coiler the zoom starts after a few wraps, exactly as in
-  the offline model.
+* **Speed changes**: the distance written in a section is where the new speed must be **reached**, not
+  where the ramp starts. The tool anticipates the ramp so that the piece is at speed exactly there, and
+  reports the shortfall when there is not enough room. An event whose target position falls while a
+  pass is engaged, or beyond a stand still to be engaged, is deferred to disengagement: a ramp cannot
+  be planned across a pass because the bite resets the speed anyway.
+* **Accelerations**, in order of precedence: the one written next to a speed change applies to that
+  ramp only; while the piece is gripped, the one of the stand rolling it; while it is free, the one of
+  the section it is in, or the global `table_accel_mps2` default.
+* **Reversals**: the `reversing_delay_s` and `reversing_clearance_m` on a row describe the reversal
+  that **follows** that pass, so the schedule reads downwards as "finish this pass, back off, wait,
+  then go the other way". The `approach_v_mps` instead stays on the row of the pass it approaches.
+  The clearance is measured from the stand, so increase it if the real constraint is the edger.
+  Leaving it empty makes the piece stop as soon as the deceleration allows, at `v^2/(2a)`, and if the
+  requested clearance is shorter than that distance the tool reports the one actually achieved rather
+  than faking an impossible braking. This is not a detail: on the example mill, going from 0 to 20 m
+  of clearance takes the minimum pacing from 105 to 148 seconds.
+* **Zoom rolling**: keeps the opposite convention on purpose, the one of the offline model, so its
+  trigger is where the acceleration **starts**. It uses the **virtual head**, that is it ignores the
+  fact that the head stops at the coiler: if it falls beyond the coiler the zoom starts after a few
+  wraps.
+* **Arrival at the coiler**: once free of the mill the piece slows down so that the tail reaches the
+  coiler at `coiler_v_final_mps`, using the acceleration on the coiler row.
 * **Coiler**: on gripping, the physical head is pinned and the length on the line decreases, while the
   virtual head carries on.
 * **Origin of the axis**: at release the head sits at the furnace exit and the tail one slab length
@@ -109,11 +119,17 @@ in mm, speeds in m/s, times in s, accelerations in m/s2**.
 | Sheet | Content |
 |---|---|
 | `Info` | `schema_version`, mill name, notes |
-| `Layout` | equipment with position, kind (`start`, `stand`, `coiler`, `marker`), axis acceleration, tandem group |
-| `Sections` | line sections with up to 7 speed changes each, given as a distance from the section start plus a speed |
+| `Layout` | equipment with position, kind (`start`, `stand`, `coiler`, `marker`), acceleration, tandem group |
+| `Sections` | line sections with their own acceleration and up to 7 speed changes each, given as a distance from the section start plus a speed |
 | `Products` | slab dimensions and product data |
 | `PassSchedule` | per pass: stand, direction, reduction, widths, speed, reversing delay and clearance, tandem master, zoom |
-| `Simulation` | pacing, number of pieces, minimum gap, scan and Monte Carlo parameters |
+| `Simulation` | pacing, number of pieces, minimum gap, roller table acceleration, final speed at the coiler, scan and Monte Carlo parameters |
+
+The `kind` column decides what the model does with a row, and `group` is functional rather than
+informative: stands sharing a group label form a tandem, and inside it the pass flagged as `master`
+sets the mass flow while the other speeds are recomputed from it. Acceleration is only read on `stand`
+rows, where it applies while the piece is gripped, and on the `coiler` row, where it sets the final
+slowdown. The `Guide` sheet inside the workbook explains all of this in place.
 
 Sections need not match the spacing between stands: a physical section can be split into sub-sections
 at any notable point. An event that would fire while a pass is engaged is **deferred to

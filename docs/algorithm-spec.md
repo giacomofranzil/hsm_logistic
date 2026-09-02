@@ -36,9 +36,12 @@ engaged      list of engaged passes, each with the position of its stand
 next_pass    index of the next pass to engage
 target       target speed of the leading extremity
 zoom_factor  cumulated zoom rolling multiplier, initially 1
-accel        current acceleration, taken from the axis in command
+ramp_accel   acceleration of the ramp under way, when the event declares its own
+stand_accel  acceleration of the stand that bit last
+armed        identifier of the event whose ramp is under way, if any
 deferred     section event postponed to disengagement, if any
-reversing    true while decelerating to reverse
+reversing    true while heading for the reversal stop
+coiler_brake true once the final slowdown towards the coiler has started
 ```
 
 Leading and trailing extremity:
@@ -59,6 +62,18 @@ a_trailing   = direction * a_lead / lam
 
 where `a_lead` is `+accel` when `target > v_lead`, `-accel` when `target < v_lead`, and 0 otherwise,
 and `target` is `nominal_target * zoom_factor`.
+
+The acceleration in force follows one precedence, evaluated at every iteration:
+
+```
+accel = ramp_accel            if a ramp declaring its own acceleration is under way
+      = stand_accel           else, while at least one pass is engaged
+      = section acceleration  else, from the section holding the leading extremity
+      = table_accel           else, the global default from the settings
+```
+
+Acceleration is therefore read from the layout only on stand rows, where it governs the piece while it
+is gripped, and on the coiler row, where it governs the final slowdown.
 
 The `lambda` of a pass is `(h_in * w_in) / (h_out * w_out)`. Length grows by itself, because the
 extremity downstream of every engaged stand is faster than the upstream one; it must not be imposed.
@@ -86,11 +101,13 @@ Candidates:
    Without that last condition, right after a bite the leading extremity sits exactly on the stand and
    a second pass on the same stand would bite at the very same instant.
 3. **tail-out** of every engaged pass: crossing of the stand position by the trailing extremity
-4. **speed event**: crossing of the trigger position by the leading extremity, in the direction
+4. **arming of a speed event**, see below
+5. **speed event**: crossing of the trigger position by the leading extremity, in the direction
    declared by the event. An event does not re-arm at the same instant at which it fired; section
    events are ignored while a reversal is in progress.
-5. **braking point** of a reversal, see below
-6. **end of run**: crossing of the coiler position by the trailing extremity, only once no pass is
+6. **braking point** of a reversal, see below
+7. **braking point** of the final slowdown towards the coiler, see below
+8. **end of run**: crossing of the coiler position by the trailing extremity, only once no pass is
    left and no stand is engaged
 
 If no candidate exists the simulation is ill posed: when passes are left, the next one is not
@@ -130,8 +147,10 @@ released, and stop point
 x_stop = x_stand + direction * reversing_clearance
 ```
 
-where `reversing_clearance` belongs to the following pass, just like `reversing_delay`. At tail-out the
-trailing extremity sits exactly on the stand, so the clearance is measured from there.
+where `reversing_clearance` and `reversing_delay` belong to the pass **just completed**, because they
+describe the reversal that follows it. At tail-out the trailing extremity sits exactly on the stand, so
+the clearance is measured from there. The approach speed used after the wait belongs instead to the
+pass being approached.
 
 **Targeted braking.** While braking has not started yet, at every iteration the braking distance
 `d = v^2 / (2a)` is computed together with the point at which braking must begin,
@@ -145,7 +164,48 @@ distance is the same for either of them.
 
 **Speed event**: if stands are engaged and the event is not marked valid while rolling, it is set aside
 as deferred, the last one arriving replacing the previous. Otherwise, a relative event multiplies
-`zoom_factor` and an absolute one assigns `nominal_target`.
+`zoom_factor` and an absolute one assigns `nominal_target` and resets `zoom_factor` to 1.
+
+### Anticipated ramps
+
+The distance written for a speed event is the position where the target must be **reached**, not where
+the ramp begins. Only the nearest event ahead in the current direction is armed, and it is armed at the
+instant when the distance still to run equals the distance the ramp needs:
+
+```
+remaining(t) = direction * (x_trigger - x_leading(t))
+required(t)  = |v_target^2 - v_leading(t)^2| / (2 * a_ramp)
+```
+
+Both sides are quadratic in time, so the arming instant is a root of a quadratic and is exact. With
+`sigma = +1` when decelerating and `-1` when accelerating, and writing `w0` for the current speed and
+`alpha` for the acceleration currently in force,
+
+```
+c0 = remaining(0) - sigma * (w0^2 - v_target^2) / (2 * a_ramp)
+c1 = -w0 * (1 + sigma * alpha / a_ramp)
+c2 = -(alpha / 2) * (1 + sigma * alpha / a_ramp)
+```
+
+and the arming time is the smallest non negative root of `c0 + c1 t + c2 t^2 = 0`. A non positive `c0`
+means the point has already gone by and the ramp must start at once.
+
+An event is **not** armed, and falls back to the plain behaviour at its trigger, when its target
+position falls inside a rolling zone: either a pass is engaged and will still be engaged there, or a
+stand still to be engaged lies between the leading extremity and the target position. A ramp cannot be
+planned across a pass, because the bite reassigns the speed anyway. When only the anticipation reaches
+back into the rolling zone while the target position is already in free running, the ramp does start
+during the pass and the fact is reported.
+
+Zoom rolling is deliberately excluded from this rule: its trigger is the point where the acceleration
+starts, following the convention of the offline model.
+
+### Final slowdown towards the coiler
+
+Once no pass is left and no stand is engaged, the same targeted braking is applied to the trailing
+extremity so that it reaches `coiler_v_final` at the coiler position, using the acceleration declared
+on the coiler row. When the run-out table is shorter than the distance required, braking starts at once
+and the speed the tail actually arrives at is reported.
 
 **Reversal wait**: two zero velocity segments are emitted for the duration of the `reversing_delay`,
 then `direction` is flipped, the approach speed of the next pass is assigned together with the

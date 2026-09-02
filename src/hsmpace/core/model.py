@@ -69,6 +69,9 @@ class Section:
     x_start: float
     length: float
     label: str = ""
+    accel: float | None = None
+    """Acceleration of the roller table in this section. When empty the global
+    default from the settings applies."""
     events: tuple[SpeedEvent, ...] = ()
 
     @property
@@ -95,10 +98,12 @@ class RollingPass:
     w_out: float
     v_exit: float
     reversing_delay: float = 0.0
+    """Dead time of the reversal that FOLLOWS this pass. It already covers
+    screwdown and side guide centring."""
     reversing_clearance: float = 0.0
     """Distance between the stand and the closest extremity of the piece when it
-    comes to rest to reverse, ahead of this pass. With zero the piece stops as
-    soon as the deceleration allows, that is at `v^2/(2a)` from the stand."""
+    comes to rest for the reversal that FOLLOWS this pass. With zero the piece
+    stops as soon as the deceleration allows, that is at `v^2/(2a)`."""
     approach_v: float | None = None
     master: bool = False
     zoom_pct: float = 0.0
@@ -160,6 +165,11 @@ class SimSettings:
     mc_seed: int = 20260831
     max_time: float = 1800.0
     time_axis_down: bool = True
+    table_accel: float = 1.0
+    """Default acceleration of the roller tables, used wherever a section does
+    not declare its own."""
+    coiler_v_final: float = 1.0
+    """Speed the tail must have when it reaches the coiler."""
 
 
 @dataclass(frozen=True)
@@ -218,6 +228,8 @@ class Case:
     products: tuple[Product, ...]
     settings: SimSettings = field(default_factory=SimSettings)
     info: dict[str, str] = field(default_factory=dict)
+    warnings: tuple[str, ...] = ()
+    """Non blocking remarks collected while reading the input."""
 
     def product(self, product_id: str) -> Product:
         for p in self.products:
@@ -298,10 +310,15 @@ def harmonise_tandem_speeds(
 @dataclass(frozen=True)
 class Problem:
     """Model inconsistency, with a locator that the Excel layer translates into
-    the originating cell."""
+    the originating cell. Warnings do not prevent the simulation from running."""
 
     locator: str
     message: str
+    severity: str = "error"
+
+    @property
+    def is_warning(self) -> bool:
+        return self.severity == "warning"
 
     def __str__(self) -> str:
         return self.message
@@ -313,6 +330,9 @@ def validate_case(case: Case) -> list[Problem]:
 
     def add(locator: str, message: str) -> None:
         problems.append(Problem(locator, message))
+
+    def warn(locator: str, message: str) -> None:
+        problems.append(Problem(locator, message, "warning"))
 
     line = case.line
     if not line.equipment:
@@ -337,6 +357,8 @@ def validate_case(case: Case) -> list[Problem]:
     for s in line.sections:
         if s.length <= 0.0:
             add(f"section:{s.id}", f"section {s.id}: length must be positive")
+        if s.accel is not None and s.accel <= 0.0:
+            add(f"section:{s.id}", f"section {s.id}: acceleration must be positive")
         for ev in s.events:
             if ev.v_target < 0.0:
                 add(
@@ -378,7 +400,7 @@ def validate_case(case: Case) -> list[Problem]:
         h_prev = product.slab_thk
         w_prev = product.slab_wid
         prev: RollingPass | None = None
-        for rp in product.passes:
+        for i, rp in enumerate(product.passes):
             ptag = f"pass:{product.id}:{rp.pass_no}"
             head = f"product {product.id} pass {rp.pass_no}"
             try:
@@ -415,6 +437,15 @@ def validate_case(case: Case) -> list[Problem]:
                     ptag,
                     f"{head}: two consecutive passes on {rp.equipment_id} in the same direction",
                 )
+            nxt = product.passes[i + 1] if i + 1 < len(product.passes) else None
+            reversal_follows = nxt is not None and nxt.direction != rp.direction
+            if not reversal_follows and (rp.reversing_delay or rp.reversing_clearance):
+                warn(
+                    ptag,
+                    f"{head}: reversing delay and clearance are ignored here, no reversal "
+                    "follows this pass. They belong to the pass the reversal comes after.",
+                )
+
             h_prev, w_prev = rp.h_out, rp.w_out
             prev = rp
 
@@ -428,5 +459,9 @@ def validate_case(case: Case) -> list[Problem]:
         add("setting:gap_min_m", "the minimum gap cannot be negative")
     if case.settings.n_pieces < 1 and not case.settings.piece_products:
         add("setting:n_pieces", "at least one piece is required")
+    if case.settings.table_accel <= 0:
+        add("setting:table_accel_mps2", "the roller table acceleration must be positive")
+    if case.settings.coiler_v_final < 0:
+        add("setting:coiler_v_final_mps", "the final speed at the coiler cannot be negative")
 
     return problems

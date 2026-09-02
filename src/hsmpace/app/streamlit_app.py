@@ -359,6 +359,8 @@ def main() -> None:
         else:
             st.success("The tandem speeds entered are already consistent with the mass balance.")
 
+        for remark in case.warnings:
+            st.warning(remark)
         for res in results[:1]:
             for warning in res.warnings:
                 st.warning(warning)

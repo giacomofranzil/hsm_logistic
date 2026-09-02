@@ -58,6 +58,7 @@ def case_to_dict(case: Case) -> dict:
                 "label": s.label,
                 "x_start_m": s.x_start,
                 "length_m": s.length,
+                "accel_mps2": s.accel,
                 "events": [
                     {
                         "id": ev.id,
@@ -117,6 +118,8 @@ def case_to_dict(case: Case) -> dict:
             "mc_delay_sigma_s": case.settings.mc_delay_sigma,
             "mc_release_sigma_s": case.settings.mc_release_sigma,
             "mc_seed": case.settings.mc_seed,
+            "table_accel_mps2": case.settings.table_accel,
+            "coiler_v_final_mps": case.settings.coiler_v_final,
             "max_time_s": case.settings.max_time,
             "time_axis_down": case.settings.time_axis_down,
         },
@@ -157,6 +160,7 @@ def case_from_dict(data: dict) -> Case:
                 x_start=float(s["x_start_m"]),
                 length=float(s["length_m"]),
                 label=s.get("label", ""),
+                accel=s.get("accel_mps2"),
                 events=events,
             )
         )
@@ -211,6 +215,8 @@ def case_from_dict(data: dict) -> Case:
         mc_delay_sigma=float(raw.get("mc_delay_sigma_s", defaults.mc_delay_sigma)),
         mc_release_sigma=float(raw.get("mc_release_sigma_s", defaults.mc_release_sigma)),
         mc_seed=int(raw.get("mc_seed", defaults.mc_seed)),
+        table_accel=float(raw.get("table_accel_mps2", defaults.table_accel)),
+        coiler_v_final=float(raw.get("coiler_v_final_mps", defaults.coiler_v_final)),
         max_time=float(raw.get("max_time_s", defaults.max_time)),
         time_axis_down=bool(raw.get("time_axis_down", defaults.time_axis_down)),
     )

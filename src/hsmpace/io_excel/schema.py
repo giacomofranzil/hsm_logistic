@@ -23,7 +23,12 @@ LAYOUT_COLUMNS = [
     ("equipment_id", "Unique identifier (R1, F7, DC1)"),
     ("kind", "start | stand | coiler | marker"),
     ("x_m", "Absolute position along the line, in metres"),
-    ("accel_mps2", "Acceleration = deceleration of the axis, m/s2"),
+    (
+        "accel_mps2",
+        "Acceleration = deceleration, m/s2. Read only on stand rows, where it applies "
+        "while the piece is gripped, and on the coiler row, where it sets the final "
+        "slowdown. Ignored on start and marker rows",
+    ),
     ("group", "Tandem group, for example FM for the finishing stands"),
     ("label", "Description shown on the charts"),
 ]
@@ -36,6 +41,7 @@ SECTION_COLUMNS = [
     ("length_m", "Length of the section, m"),
     ("direction", "fwd | rev: direction of travel in which the events apply"),
     ("during_pass", "YES if the event applies while rolling, NO to defer it"),
+    ("accel_mps2", "Roller table acceleration in this section, m/s2 (empty = global default)"),
 ]
 
 SECTION_EVENT_COLUMNS = [
@@ -63,13 +69,20 @@ PASS_COLUMNS = [
     ("w_in_mm", "Entry width, mm"),
     ("w_out_mm", "Exit width, mm"),
     ("v_exit_mps", "Material speed at the stand exit, m/s"),
-    ("reversing_delay_s", "Dead time ahead of this pass when the direction changes, s"),
+    (
+        "reversing_delay_s",
+        "Dead time of the reversal that FOLLOWS this pass, s",
+    ),
     (
         "reversing_clearance_m",
-        "Distance between the stand and the closest extremity when the piece stops "
-        "to reverse, m (empty = shortest braking distance)",
+        "Distance between the stand and the closest extremity when the piece stops for "
+        "the reversal that FOLLOWS this pass, m (empty = shortest braking distance)",
     ),
-    ("approach_v_mps", "Approach speed after the reversal (empty = entry speed)"),
+    (
+        "approach_v_mps",
+        "Speed at which the piece comes back towards THIS pass after a reversal "
+        "(empty = entry speed of the pass)",
+    ),
     ("master", "YES on the stand that sets the mass flow of the tandem group"),
     ("zoom_pct", "Zoom rolling: speed increase in per cent"),
     ("zoom_trigger_m", "Zoom: travel of the virtual head beyond this stand, m"),
@@ -93,6 +106,8 @@ SIM_KEYS = [
     ("mc_delay_sigma_s", 1.0, "Standard deviation of the dead times, s"),
     ("mc_release_sigma_s", 2.0, "Standard deviation of the release instant, s"),
     ("mc_seed", 20260831, "Seed of the random generator, for reproducible results"),
+    ("table_accel_mps2", 1.0, "Default roller table acceleration, m/s2"),
+    ("coiler_v_final_mps", 1.0, "Speed the tail must have when it reaches the coiler, m/s"),
     ("max_time_s", 1800.0, "Maximum simulation time of a single piece, s"),
     ("time_axis_down", "YES", "YES for time increasing downwards on the diagram"),
 ]
@@ -112,7 +127,53 @@ GUIDE_TEXT = [
     ("    positions and lengths in m, thicknesses and widths in mm,", False),
     ("    speeds in m/s, times in s, accelerations in m/s2.", False),
     ("", False),
-    ("Sections and speed events", True),
+    ("Sheet Layout: the kind column", True),
+    (
+        "Every row is one item of equipment placed at an absolute position. The kind "
+        "column decides what the model does with it and accepts four values:",
+        False,
+    ),
+    (
+        "    start    the point where the piece is released, normally the furnace exit. "
+        "Exactly one row must carry it. At release the head sits here and the tail one "
+        "slab length further upstream.",
+        False,
+    ),
+    (
+        "    stand    a rolling stand. Only these can appear in the PassSchedule sheet, "
+        "and their acceleration governs the piece while it is gripped.",
+        False,
+    ),
+    (
+        "    coiler   the coiler. The head stops here, and the acceleration on this row "
+        "is the deceleration used to bring the tail down to the final speed.",
+        False,
+    ),
+    (
+        "    marker   anything with no dynamics: descalers, edgers, shears. It is only "
+        "drawn as a reference line on the charts and its acceleration is ignored.",
+        False,
+    ),
+    ("", False),
+    ("Sheet Layout: the group column", True),
+    (
+        "It is not a comment, it drives the calculation. Stands carrying the same group "
+        "label form a tandem, and inside a tandem the pass flagged as master in the "
+        "PassSchedule sheet sets the mass flow: the speeds of all the other stands in "
+        "the group are RECOMPUTED from it and the ones you entered are only reported as "
+        "a deviation. This is deliberate, because between two stands of a tandem the "
+        "strip has a fixed length, so inconsistent speeds would describe an impossible "
+        "motion.",
+        False,
+    ),
+    (
+        "Consequence to keep in mind: emptying the group column switches that protection "
+        "off without any error message, and the speeds you entered are used as they are. "
+        "Same thing if the group exists but no pass in it is flagged as master.",
+        False,
+    ),
+    ("", False),
+    ("Sheet Sections: speed changes", True),
     (
         "Roller tables have no setpoint of their own: the line is divided into sections "
         "defined by whoever fills in the file, possibly shorter than the spacing between "
@@ -121,36 +182,91 @@ GUIDE_TEXT = [
         False,
     ),
     (
-        "An event that would fire while a pass is engaged is deferred to disengagement, "
-        "because while rolling it is the mill that commands, not the roller table. Put "
-        "YES in during_pass to make it apply anyway.",
+        "The distance is the point where the new speed must be REACHED, not where the "
+        "ramp begins: the tool anticipates the ramp by v_new^2 - v_old^2 over twice the "
+        "acceleration so that the piece is at speed exactly there. If there is not enough "
+        "room the ramp starts as early as it can and the difference is reported.",
+        False,
+    ),
+    (
+        "An event whose target position falls while a pass is engaged is deferred to "
+        "disengagement, because while rolling it is the mill that commands and not the "
+        "roller table. The same applies when a stand still to be engaged lies between the "
+        "piece and the target position: a ramp cannot be planned across a pass, the bite "
+        "would reset the speed anyway. Put YES in during_pass to override this.",
+        False,
+    ),
+    (
+        "If instead only the anticipation reaches back into the rolling zone, while the "
+        "target position is already in free running, the ramp does start during the pass "
+        "and the tool reports it: it is the mill decelerating ahead of tail-out, which is "
+        "a real manoeuvre.",
+        False,
+    ),
+    ("", False),
+    ("Accelerations: three sources, one precedence", True),
+    (
+        "    1. the acceleration written next to a speed change applies to that ramp only, "
+        "then the value below takes over again;",
+        False,
+    ),
+    (
+        "    2. while the piece is gripped, the acceleration of the stand rolling it;",
+        False,
+    ),
+    (
+        "    3. while the piece is free, the acceleration of the section it is in, or the "
+        "global default table_accel_mps2 from the Simulation sheet when the section leaves "
+        "it empty.",
+        False,
+    ),
+    (
+        "So the braking towards a reversal and the restart afterwards use the roller table "
+        "value, because in that moment the bar is moved by the table and not by the mill.",
         False,
     ),
     ("", False),
     ("Reversing roughing", True),
     (
-        "After tail-out the piece keeps going until the extremity closest to the stand "
-        "is reversing_clearance_m metres away from it, where it stops, waits for the "
-        "reversing delay of the following pass and restarts in the opposite direction. "
-        "The reversing delay must already include screwdown and side guide centring, and "
-        "the clearance is measured from the stand, so increase it if the real constraint "
-        "is the edger a few metres before.",
+        "The reversing delay and the reversing clearance on a row describe the reversal "
+        "that FOLLOWS that pass. Reading the schedule downwards it says: finish this pass, "
+        "back off by the clearance, wait for the delay, then go the other way. The last "
+        "pass, and any pass followed by another one in the same direction, carry none: a "
+        "value written there is ignored and reported as a warning.",
         False,
     ),
     (
-        "Leaving the clearance empty makes the piece stop as soon as the deceleration "
-        "allows, that is at v^2/(2a) from the stand. If the requested clearance is "
-        "shorter than that distance the tool reports it rather than faking an impossible "
-        "braking.",
+        "The clearance is the distance between the stand and the extremity of the piece "
+        "closest to it once the piece has stopped, and it is measured from the stand, so "
+        "increase it if the real constraint is the edger a few metres before. Leaving it "
+        "empty makes the piece stop as soon as the deceleration allows, at v^2/(2a). If "
+        "the requested clearance is shorter than that distance the tool reports the one "
+        "actually achieved rather than faking an impossible braking.",
+        False,
+    ),
+    (
+        "The approach speed instead stays on the row of the pass it belongs to: it is the "
+        "speed at which the piece comes back TOWARDS that pass. So for one reversal the "
+        "clearance and the delay are on one row and the approach speed on the next.",
         False,
     ),
     ("", False),
     ("Zoom rolling", True),
     (
-        "Defined as a percentage speed increase starting when the head has travelled "
-        "zoom_trigger_m beyond the given stand. The trigger uses the virtual head, that "
-        "is it ignores the fact that the head stops at the coiler: if the trigger falls "
-        "beyond the coiler the zoom starts after a few wraps, as in the offline model.",
+        "Zoom keeps the opposite convention on purpose, the one of the offline model: "
+        "zoom_trigger_m is the point where the acceleration STARTS, not where the speed is "
+        "reached. It is measured from the stand on whose row it is written, and it uses "
+        "the virtual head, that is it ignores the fact that the head stops at the coiler: "
+        "if the trigger falls beyond the coiler the zoom starts after a few wraps.",
+        False,
+    ),
+    ("", False),
+    ("Arrival at the coiler", True),
+    (
+        "Once the piece is free of the mill it is slowed down so that the tail reaches the "
+        "coiler at coiler_v_final_mps, using the acceleration written on the coiler row of "
+        "the Layout sheet. If the run-out table is too short for that deceleration, the "
+        "tool reports the speed the tail actually arrives at.",
         False,
     ),
     ("", False),
@@ -158,8 +274,8 @@ GUIDE_TEXT = [
     (
         "No interlocks and no hold points: the pieces follow their nominal profiles and "
         "the tool reports where the gap drops below the threshold, without stopping the "
-        "piece behind. Roller slip neglected, infinite jerk, no thermal model, no "
-        "furnace or coiler cycle constraint.",
+        "piece behind. Roller slip neglected, infinite jerk, no thermal model, no coilbox, "
+        "no furnace cadence constraint.",
         False,
     ),
 ]

@@ -22,7 +22,7 @@ from .core.model import (
 )
 
 _EQUIPMENT = [
-    Equipment("FURN", "start", 0.0, accel=0.8, label="Furnace exit"),
+    Equipment("FURN", "start", 0.0, label="Furnace exit"),
     Equipment("DS1", "marker", 8.0, label="Primary descaler"),
     Equipment("E1", "marker", 22.0, label="Edger E1"),
     Equipment("R1", "stand", 25.0, accel=1.0, label="Roughing stand R1"),
@@ -37,7 +37,7 @@ _EQUIPMENT = [
     Equipment("F5", "stand", 212.0, accel=1.5, group="FM", label="F5"),
     Equipment("F6", "stand", 217.5, accel=1.5, group="FM", label="F6"),
     Equipment("F7", "stand", 223.0, accel=1.5, group="FM", label="F7"),
-    Equipment("DC1", "coiler", 330.0, accel=1.5, label="Downcoiler 1"),
+    Equipment("DC1", "coiler", 330.0, accel=0.9, label="Downcoiler 1"),
 ]
 
 _SECTIONS = [
@@ -66,13 +66,15 @@ _SECTIONS = [
 ]
 
 # (pass_no, stand, direction, h_in, h_out, w_in, w_out, v_exit, reversing_delay, clearance)
+# The reversing delay and clearance describe the reversal that FOLLOWS the pass on
+# the same row, so passes 3 and 6 carry none: after them the direction does not change.
 _PASSES = [
-    (1, "R1", FWD, 220.0, 175.0, 1250.0, 1255.0, 2.50, 0.0, 0.0),
+    (1, "R1", FWD, 220.0, 175.0, 1250.0, 1255.0, 2.50, 6.0, 5.0),
     (2, "R1", REV, 175.0, 135.0, 1255.0, 1260.0, 3.00, 6.0, 5.0),
-    (3, "R1", FWD, 135.0, 105.0, 1260.0, 1265.0, 3.50, 6.0, 5.0),
-    (4, "R2", FWD, 105.0, 75.0, 1265.0, 1268.0, 3.50, 0.0, 0.0),
-    (5, "R2", REV, 75.0, 52.0, 1268.0, 1270.0, 4.00, 6.0, 5.0),
-    (6, "R2", FWD, 52.0, 38.0, 1270.0, 1272.0, 4.50, 6.0, 5.0),
+    (3, "R1", FWD, 135.0, 105.0, 1260.0, 1265.0, 3.50, 0.0, 0.0),
+    (4, "R2", FWD, 105.0, 75.0, 1265.0, 1268.0, 3.50, 6.0, 9.0),
+    (5, "R2", REV, 75.0, 52.0, 1268.0, 1270.0, 4.00, 6.0, 9.0),
+    (6, "R2", FWD, 52.0, 38.0, 1270.0, 1272.0, 4.50, 0.0, 0.0),
     (7, "F1", FWD, 38.0, 22.0, 1272.0, 1272.0, 1.70, 0.0, 0.0),
     (8, "F2", FWD, 22.0, 13.2, 1272.0, 1272.0, 2.84, 0.0, 0.0),
     (9, "F3", FWD, 13.2, 8.6, 1272.0, 1272.0, 4.36, 0.0, 0.0),

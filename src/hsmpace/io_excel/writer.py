@@ -86,8 +86,10 @@ def write_case(case: Case, path: str | Path, include_data: bool = True) -> Path:
     _write_header(ws, S.LAYOUT_COLUMNS)
     if include_data:
         for row, eq in enumerate(case.line.equipment, start=2):
+            # acceleration is only read on stand and coiler rows
+            accel = eq.accel if eq.kind in ("stand", "coiler") else None
             for col, value in enumerate(
-                [eq.id, eq.kind, eq.x, eq.accel, eq.group, eq.label], start=1
+                [eq.id, eq.kind, eq.x, accel, eq.group, eq.label], start=1
             ):
                 ws.cell(row=row, column=col, value=value)
 
@@ -106,6 +108,7 @@ def write_case(case: Case, path: str | Path, include_data: bool = True) -> Path:
                 sec.length,
                 _direction(direction),
                 _bool(during),
+                sec.accel,
             ]
             for i, ev in enumerate(sec.events[: S.MAX_EVENTS_PER_SECTION]):
                 values.extend(
@@ -168,6 +171,8 @@ def write_case(case: Case, path: str | Path, include_data: bool = True) -> Path:
         "mc_delay_sigma_s": s.mc_delay_sigma,
         "mc_release_sigma_s": s.mc_release_sigma,
         "mc_seed": s.mc_seed,
+        "table_accel_mps2": s.table_accel,
+        "coiler_v_final_mps": s.coiler_v_final,
         "max_time_s": s.max_time,
         "time_axis_down": _bool(s.time_axis_down),
     }

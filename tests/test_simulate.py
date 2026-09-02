@@ -72,8 +72,10 @@ def test_single_pass_exact_timings():
     assert math.isclose(tail_out.t, 31.0, abs_tol=1e-6)
     assert math.isclose(res.head.x_at(31.0), 70.0, abs_tol=1e-6)
     assert math.isclose(res.tail.x_at(31.0), 50.0, abs_tol=1e-6)
-    # tail at the coiler: 150 m left at 4 m/s
-    assert math.isclose(res.t_end, 68.5, abs_tol=1e-6)
+    # the tail then runs to the coiler slowing down to the final speed: braking from
+    # 4 to 1 m/s at 1 m/s2 takes 7.5 m, so 142.5 m at 4 m/s plus 3 s of deceleration
+    assert math.isclose(res.t_end, 69.625, abs_tol=1e-6)
+    assert res.tail.v_at(res.t_end) == pytest.approx(1.0, abs=1e-6)
 
 
 def test_mass_balance_is_exact():
@@ -121,9 +123,9 @@ def test_the_reversal_honours_the_reversing_delay():
     case = _case(
         line,
         [
-            _pass(1, "R", FWD, 100.0, 80.0, 3.0),
+            _pass(1, "R", FWD, 100.0, 80.0, 3.0, reversing_delay=7.0),
             _pass(2, "R", REV, 80.0, 60.0, 3.0, reversing_delay=7.0),
-            _pass(3, "R", FWD, 60.0, 40.0, 3.0, reversing_delay=7.0),
+            _pass(3, "R", FWD, 60.0, 40.0, 3.0),
         ],
     )
     res = simulate_piece(case, case.products[0])
@@ -146,9 +148,9 @@ def test_the_reversing_clearance_is_honoured():
     case = _case(
         line,
         [
-            _pass(1, "R", FWD, 100.0, 80.0, 3.0),
+            _pass(1, "R", FWD, 100.0, 80.0, 3.0, reversing_delay=4.0, reversing_clearance=12.0),
             _pass(2, "R", REV, 80.0, 60.0, 3.0, reversing_delay=4.0, reversing_clearance=12.0),
-            _pass(3, "R", FWD, 60.0, 40.0, 3.0, reversing_delay=4.0, reversing_clearance=12.0),
+            _pass(3, "R", FWD, 60.0, 40.0, 3.0),
         ],
     )
     res = simulate_piece(case, case.products[0])
@@ -169,9 +171,9 @@ def test_an_unreachable_clearance_is_reported():
     case = _case(
         line,
         [
-            _pass(1, "R", FWD, 100.0, 80.0, 3.0),
+            _pass(1, "R", FWD, 100.0, 80.0, 3.0, reversing_delay=4.0, reversing_clearance=2.0),
             _pass(2, "R", REV, 80.0, 60.0, 3.0, reversing_delay=4.0, reversing_clearance=2.0),
-            _pass(3, "R", FWD, 60.0, 40.0, 3.0, reversing_delay=4.0, reversing_clearance=2.0),
+            _pass(3, "R", FWD, 60.0, 40.0, 3.0),
         ],
     )
     res = simulate_piece(case, case.products[0])
@@ -186,9 +188,9 @@ def test_without_clearance_the_stop_is_at_the_braking_distance():
     case = _case(
         line,
         [
-            _pass(1, "R", FWD, 100.0, 80.0, 3.0),
+            _pass(1, "R", FWD, 100.0, 80.0, 3.0, reversing_delay=4.0),
             _pass(2, "R", REV, 80.0, 60.0, 3.0, reversing_delay=4.0),
-            _pass(3, "R", FWD, 60.0, 40.0, 3.0, reversing_delay=4.0),
+            _pass(3, "R", FWD, 60.0, 40.0, 3.0),
         ],
     )
     res = simulate_piece(case, case.products[0])
@@ -202,9 +204,9 @@ def test_on_a_reverse_pass_the_piece_travels_back():
     case = _case(
         line,
         [
-            _pass(1, "R", FWD, 100.0, 80.0, 3.0),
+            _pass(1, "R", FWD, 100.0, 80.0, 3.0, reversing_delay=5.0),
             _pass(2, "R", REV, 80.0, 60.0, 3.0, reversing_delay=5.0),
-            _pass(3, "R", FWD, 60.0, 40.0, 3.0, reversing_delay=5.0),
+            _pass(3, "R", FWD, 60.0, 40.0, 3.0),
         ],
     )
     res = simulate_piece(case, case.products[0])
@@ -240,8 +242,10 @@ def test_zoom_fires_on_the_virtual_head_beyond_the_coiler():
     zoom = [e for e in res.events if e.kind == "zoom"]
     assert len(zoom) == 1
     assert zoom[0].x == pytest.approx(250.0)
-    # the tail speeds up by 10% after the zoom
-    assert res.tail.v_at(res.t_end) == pytest.approx(4.4, rel=1e-6)
+    # the tail speeds up by 10%, until the coiler slowdown takes over
+    slowdown = next(e for e in res.events if e.kind == "coiler_slowdown")
+    assert res.tail.v_at(0.5 * (zoom[0].t + slowdown.t)) == pytest.approx(4.4, rel=1e-6)
+    assert res.tail.v_at(res.t_end) == pytest.approx(1.0, abs=1e-6)
 
 
 def test_section_event_deferred_to_disengagement():

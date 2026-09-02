@@ -34,7 +34,8 @@ def test_the_empty_template_has_the_sheets_and_headers(tmp_path):
         wb.sheetnames
     )
     assert wb["Layout"]["A1"].value == "equipment_id"
-    assert wb["Sections"]["H1"].value == "d1_m"
+    header = [c.value for c in wb["Sections"][1]]
+    assert "d1_m" in header and "accel_mps2" in header
     assert wb["Layout"].max_row == 1, "the template must contain no data"
 
 
@@ -88,7 +89,9 @@ def test_an_unsupported_schema_version_is_rejected(tmp_path):
 def test_a_section_event_beyond_the_length_is_rejected(tmp_path):
     path = write_case(example_case(), tmp_path / "section.xlsx")
     wb = load_workbook(path)
-    wb["Sections"]["H4"] = 999.0
+    ws = wb["Sections"]
+    col = [c.value for c in ws[1]].index("d1_m") + 1
+    ws.cell(row=4, column=col, value=999.0)
     wb.save(path)
 
     with pytest.raises(ValidationError, match="beyond the section length"):
@@ -106,6 +109,19 @@ def test_an_older_workbook_without_optional_columns_still_loads(tmp_path):
 
     loaded = read_case(path)
     assert all(p.reversing_clearance == 0.0 for p in loaded.products[0].passes)
+
+
+def test_a_misplaced_reversal_value_is_only_a_warning(tmp_path):
+    """The delay belongs to the pass the reversal comes after, not to any pass."""
+    path = write_case(example_case(), tmp_path / "misplaced.xlsx")
+    wb = load_workbook(path)
+    ws = wb["PassSchedule"]
+    col = [c.value for c in ws[1]].index("reversing_delay_s") + 1
+    ws.cell(row=14, column=col, value=9.0)  # last pass, no reversal follows it
+    wb.save(path)
+
+    loaded = read_case(path)
+    assert any("no reversal follows" in w for w in loaded.warnings)
 
 
 def test_writing_the_results(tmp_path):

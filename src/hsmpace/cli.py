@@ -76,6 +76,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
         write_results(args.excel, case, results, analyses, deviations, curve, best, mc)
         print(f"Excel results written to {args.excel}")
 
+    for remark in case.warnings:
+        print(f"Warning: {remark}")
+    for warning in dict.fromkeys(w for r in results for w in r.warnings):
+        print(f"Warning: {warning}")
+
     print(f"Simulated pacing: {case.settings.pacing:.1f} s over {len(results)} pieces")
     if analyses:
         worst = min(analyses, key=lambda a: a.min_gap)
