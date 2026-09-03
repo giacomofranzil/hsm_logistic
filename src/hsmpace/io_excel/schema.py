@@ -26,8 +26,9 @@ LAYOUT_COLUMNS = [
     (
         "accel_mps2",
         "Acceleration = deceleration, m/s2. Read only on stand rows, where it applies "
-        "while the piece is gripped, and on the coiler row, where it sets the final "
-        "slowdown. Ignored on start and marker rows",
+        "while the piece is gripped, and on the coiler row, where it is the "
+        "deceleration of the tail down to the final speed, including while the "
+        "finishing mill is still rolling. Ignored on start and marker rows",
     ),
     ("group", "Tandem group, for example FM for the finishing stands"),
     ("label", "Description shown on the charts"),
@@ -146,7 +147,8 @@ GUIDE_TEXT = [
     ),
     (
         "    coiler   the coiler. The head stops here, and the acceleration on this row "
-        "is the deceleration used to bring the tail down to the final speed.",
+        "is the deceleration of the tail down to the final speed, used even while the "
+        "finishing mill is still rolling.",
         False,
     ),
     (
@@ -211,7 +213,8 @@ GUIDE_TEXT = [
         False,
     ),
     (
-        "    2. while the piece is gripped, the acceleration of the stand rolling it;",
+        "    2. while the piece is gripped, the acceleration of the stand rolling it, "
+        "except during the final slowdown towards the coiler (see below);",
         False,
     ),
     (
@@ -263,10 +266,16 @@ GUIDE_TEXT = [
     ("", False),
     ("Arrival at the coiler", True),
     (
-        "Once the piece is free of the mill it is slowed down so that the tail reaches the "
-        "coiler at coiler_v_final_mps, using the acceleration written on the coiler row of "
-        "the Layout sheet. If the run-out table is too short for that deceleration, the "
-        "tool reports the speed the tail actually arrives at.",
+        "The control starts the slowdown as late as possible, so that the tail reaches "
+        "the coiler at coiler_v_final_mps, using the acceleration written on the coiler "
+        "row of the Layout sheet. The constraint is on the tail; the command is on the "
+        "leading extremity, scaled by the remaining elongation chain: the tail is held "
+        "at that deceleration and the mill at that rate times the product of the lambdas "
+        "still engaged. At each tail-out the commanded rate steps down, the tail "
+        "deceleration stays the same. If the tail is still in the finishing mill when "
+        "the latest start arrives, the tandem slows down anyway: that is what the plant "
+        "does. If even that is not enough, the tool reports the speed the tail actually "
+        "arrives at rather than faking an impossible braking.",
         False,
     ),
     ("", False),

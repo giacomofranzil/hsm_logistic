@@ -662,10 +662,15 @@ other way". The approach speed stays on the row of the pass it approaches, by ex
 value written where no reversal follows is reported as a non blocking warning.
 
 **New: the strip slows down before the coiler**, so that the tail arrives at a configurable final
-speed using the deceleration declared on the coiler row. Here the arithmetic of the example did not
-work out: from 13.5 m/s over the 107 m of run-out table, 0.3 m/s2 would land the tail at 10.9 m/s and
-0.85 m/s2 would be needed to reach 1 m/s. The template keeps 0.3 as the default and the example mill
-uses 0.9, so that the shipped example does not open with a permanent warning.
+speed using the deceleration declared on the coiler row. The first version armed that braking only
+after the last tail-out, which made the model optimistic whenever the run-out was shorter than
+`v_exit^2 / (2a)`: the real mill would have started earlier, while the tail was still in the
+tandem. The slowdown is now planned on the tail, including the speed jumps at the remaining
+tail-outs, and commanded on the lead at `a_c * Πλ`. It starts as late as possible so the tail meets
+`coiler_v_final` at the mandrel. The arithmetic of the example still matters for the default
+template: from 13.5 m/s over the 107 m of run-out table, 0.3 m/s2 would land the tail at 10.9 m/s
+and 0.85 m/s2 would be needed to reach 1 m/s after the last tail-out. The template keeps 0.3 as the
+default and the example mill uses 0.9.
 
 ### 15.6 What is still missing, in order of usefulness
 

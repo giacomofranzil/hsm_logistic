@@ -37,6 +37,9 @@ def test_the_empty_template_has_the_sheets_and_headers(tmp_path):
     header = [c.value for c in wb["Sections"][1]]
     assert "d1_m" in header and "accel_mps2" in header
     assert wb["Layout"].max_row == 1, "the template must contain no data"
+    guide = "\n".join(str(row[0].value or "") for row in wb["Guide"].iter_rows(min_col=1, max_col=1))
+    assert "tandem slows down anyway" in guide
+    assert "as late as possible" in guide
 
 
 def test_json_round_trip_preserves_the_case():

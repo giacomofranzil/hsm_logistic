@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import pytest
 
@@ -21,7 +22,11 @@ from hsmpace.core.model import (
     harmonise_tandem_speeds,
     validate_case,
 )
-from hsmpace.core.simulate import simulate_piece
+from hsmpace.core.simulate import (
+    coiler_tail_waypoint,
+    simulate_piece,
+    tail_arrival_speed,
+)
 
 
 def _line(stands: list[tuple[str, float]], coiler_x: float = 200.0, v_start: float = 2.0) -> Line:
@@ -337,6 +342,84 @@ def test_a_reverse_first_pass_is_rejected():
     case = _case(line, [_pass(1, "R", REV, 100.0, 50.0, 4.0)])
     problems = [p.message for p in validate_case(case)]
     assert any("first pass" in p for p in problems)
+
+
+def test_coiler_waypoint_walks_backward_through_the_remaining_stands():
+    """The tail speeds up at each tail-out, so the last-possible start is earlier."""
+    f1 = _pass(1, "F1", FWD, 100.0, 50.0, 4.0)
+    f2 = _pass(2, "F2", FWD, 50.0, 25.0, 8.0)
+    engaged = [(f1, 50.0, 0.0), (f2, 60.0, 0.0)]
+
+    x_wp, v_wp = coiler_tail_waypoint(30.0, 80.0, 1.0, 1.0, engaged)
+    assert x_wp == pytest.approx(50.0)
+    assert v_wp == pytest.approx(2.75)
+
+    x_wp, v_wp = coiler_tail_waypoint(50.0, 80.0, 1.0, 1.0, [(f2, 60.0, 0.0)])
+    assert x_wp == pytest.approx(60.0)
+    assert v_wp == pytest.approx(41.0 ** 0.5 / 2.0)
+
+    x_wp, v_wp = coiler_tail_waypoint(60.0, 80.0, 1.0, 1.0, [])
+    assert x_wp == pytest.approx(80.0)
+    assert v_wp == pytest.approx(1.0)
+
+    # latest start after F1 tail-out: 4 m/s at 57.125 m lands on 1 m/s at the mandrel
+    assert tail_arrival_speed(57.125, 4.0, 80.0, 1.0, [(f2, 60.0, 0.0)]) == pytest.approx(
+        1.0, abs=1e-6
+    )
+    # waiting until the piece is free is too late: 8 m/s over 20 m at 1 m/s2
+    assert tail_arrival_speed(60.0, 8.0, 80.0, 1.0, []) == pytest.approx(24.0 ** 0.5)
+
+
+def test_the_finishing_mill_slows_down_while_the_tail_is_still_engaged():
+    """Short run-out: braking after the last tail-out cannot reach 1 m/s."""
+    line = _line([("F1", 50.0), ("F2", 60.0)], coiler_x=80.0)
+    case = _case(
+        line,
+        [
+            _pass(1, "F1", FWD, 100.0, 50.0, 4.0),
+            _pass(2, "F2", FWD, 50.0, 25.0, 8.0),
+        ],
+    )
+    res = simulate_piece(case, case.products[0])
+
+    slowdown = next(e for e in res.events if e.kind == "coiler_slowdown")
+    last_tail_out = max(e.t for e in res.events if e.kind == "tail_out")
+    assert slowdown.t < last_tail_out
+    assert "mill still rolling" in slowdown.detail
+    assert res.tail.v_at(res.t_end) == pytest.approx(1.0, abs=1e-6)
+    assert res.warnings == ()
+
+    # while F2 is still engaged the tail decelerates at the coiler rate and the
+    # lead at that rate times the remaining lambda
+    t_mid = 0.5 * (slowdown.t + last_tail_out)
+    assert res.tail.a_at(t_mid) == pytest.approx(-1.0, abs=1e-6)
+    assert res.head_virtual.a_at(t_mid) == pytest.approx(-2.0, abs=1e-6)
+    assert res.head_virtual.v_at(t_mid) / res.tail.v_at(t_mid) == pytest.approx(2.0, rel=1e-6)
+
+    # after the last tail-out the body is rigid: both decelerate at the coiler rate
+    t_free = last_tail_out + 0.05
+    if t_free < res.t_end:
+        assert res.head_virtual.v_at(t_free) == pytest.approx(res.tail.v_at(t_free), abs=1e-6)
+        assert res.head_virtual.a_at(t_free) == pytest.approx(-1.0, abs=1e-6)
+
+
+def test_an_impossible_coiler_slowdown_is_reported_even_with_the_mill():
+    """At 0.05 m/s2 the latest start is already behind the tail at the last bite."""
+    line = _line([("F1", 50.0), ("F2", 60.0)], coiler_x=68.0)
+    equipment = tuple(
+        replace(eq, accel=0.05) if eq.id == "DC" else eq for eq in line.equipment
+    )
+    line = Line(equipment, line.sections)
+    case = _case(
+        line,
+        [
+            _pass(1, "F1", FWD, 100.0, 50.0, 4.0),
+            _pass(2, "F2", FWD, 50.0, 25.0, 8.0),
+        ],
+    )
+    res = simulate_piece(case, case.products[0])
+    assert any("cannot slow down" in w and "mill is still rolling" in w for w in res.warnings)
+    assert res.tail.v_at(res.t_end) > 1.0
 
 
 def test_a_reverse_last_pass_is_rejected():

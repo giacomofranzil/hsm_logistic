@@ -102,8 +102,11 @@ Other conventions worth knowing:
   trigger is where the acceleration **starts**. It uses the **virtual head**, that is it ignores the
   fact that the head stops at the coiler: if it falls beyond the coiler the zoom starts after a few
   wraps.
-* **Arrival at the coiler**: once free of the mill the piece slows down so that the tail reaches the
-  coiler at `coiler_v_final_mps`, using the acceleration on the coiler row.
+* **Arrival at the coiler**: the slowdown starts as late as possible so that the tail reaches the
+  coiler at `coiler_v_final_mps`, using the acceleration on the coiler row. The constraint is on
+  the tail; the command is on the leading extremity, scaled by the remaining elongation chain. If
+  the tail is still in the finishing mill, the tandem slows down anyway. If even that is not
+  enough, the tool reports the speed the tail actually arrives at.
 * **Coiler**: on gripping, the physical head is pinned and the length on the line decreases, while the
   virtual head carries on.
 * **Origin of the axis**: at release the head sits at the furnace exit and the tail one slab length

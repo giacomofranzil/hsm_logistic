@@ -73,7 +73,8 @@ accel = ramp_accel            if a ramp declaring its own acceleration is under 
 ```
 
 Acceleration is therefore read from the layout only on stand rows, where it governs the piece while it
-is gripped, and on the coiler row, where it governs the final slowdown.
+is gripped, and on the coiler row, where it governs the final slowdown (as `ramp_accel = a_c * lam`,
+including while the mill is still rolling).
 
 The `lambda` of a pass is `(h_in * w_in) / (h_out * w_out)`. Length grows by itself, because the
 extremity downstream of every engaged stand is faster than the upstream one; it must not be imposed.
@@ -202,10 +203,33 @@ starts, following the convention of the offline model.
 
 ### Final slowdown towards the coiler
 
-Once no pass is left and no stand is engaged, the same targeted braking is applied to the trailing
-extremity so that it reaches `coiler_v_final` at the coiler position, using the acceleration declared
-on the coiler row. When the run-out table is shorter than the distance required, braking starts at once
-and the speed the tail actually arrives at is reported.
+Once the last pass has bitten (`next_pass` past the end of the schedule) and the piece is travelling
+forward, the slowdown is planned on the **tail** so that it meets `coiler_v_final` at the coiler,
+using the acceleration `a_c` declared on the coiler row. It starts as late as possible, including
+while stands are still engaged.
+
+The remaining stands the tail has not yet cleared are walked **backward** from the mandrel. At each
+stand the tail will speed up by that pass's lambda, so the speed required just before tail-out is
+the speed required just after it, divided by lambda. Between stands the tail is held at deceleration
+`a_c`. The walk yields a waypoint `(x_wp, v_wp)`: the first remaining stand at the tail speed it
+must have there, or the coiler itself at `v_final` when nothing is left engaged. Targeted braking
+is then applied to the tail toward that waypoint, exactly as for a reversal.
+
+When braking starts the command is put on the leading extremity:
+
+```
+ramp_accel      = a_c * lam
+nominal_target  = coiler_v_final * lam
+zoom_factor     = 1
+```
+
+so the tail decelerates at `a_c` toward `coiler_v_final`. At every later tail-out `lam` falls and
+the same assignment is repeated: the commanded rate steps down, the tail deceleration stays
+constant. Section events and zoom are ignored once this slowdown has started.
+
+If the tail has already passed the latest start, braking begins at once. The speed it would then
+have at the mandrel, including the jumps at the remaining tail-outs, is reported when it exceeds
+`coiler_v_final`.
 
 **Reversal wait**: two zero velocity segments are emitted for the duration of the `reversing_delay`,
 then `direction` is flipped, the approach speed of the next pass is assigned together with the
