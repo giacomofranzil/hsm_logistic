@@ -105,7 +105,7 @@ def example_case() -> Case:
                 zoom_pct=8.0 if stand == "F7" else 0.0,
                 # 130 m past F7 fall beyond the coiler, which sits at 107 m, so the
                 # trigger uses the virtual head: the zoom starts after a few wraps,
-                # exactly as in the offline model
+                # exactly as in the offline model TRoll
                 zoom_trigger=130.0 if stand == "F7" else 0.0,
             )
         )

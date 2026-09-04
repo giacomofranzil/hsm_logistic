@@ -525,7 +525,7 @@ question R1 at the end.
   screwdown and side guide centring. No separate modelling of the two contributions.
 - **Point 10 - speed constraints over a spatial window**: out of scope. Shear and descaler are handled
   with sections and speed events.
-- **Point 11 - zoom rolling**: present, in the convention of the offline model. Speed increment in
+- **Point 11 - zoom rolling**: present, in the convention of the offline model TRoll. Speed increment in
   **per cent**, start of acceleration set by the **position of the head past the last stand**. The
   trigger uses the **virtual head**, that is the position the head would have if it kept advancing,
   ignoring the stop at the coiler. This is intentional: if the coiler is at 80 m and the trigger at
@@ -646,7 +646,7 @@ pass, because the bite would reassign the speed anyway, and when only the antici
 into the pass the ramp does start during rolling, which is a real manoeuvre, and is reported.
 
 **Zoom rolling keeps the opposite convention on purpose.** Its trigger is where the acceleration
-starts, because that is how the offline model defines it. Being the one exception, it is called out
+starts, because that is how the offline model TRoll defines it. Being the one exception, it is called out
 explicitly in the guide.
 
 **Acceleration had no rule, now it has one.** It used to be whatever the last device to take command

@@ -199,7 +199,7 @@ back into the rolling zone while the target position is already in free running,
 during the pass and the fact is reported.
 
 Zoom rolling is deliberately excluded from this rule: its trigger is the point where the acceleration
-starts, following the convention of the offline model.
+starts, following the convention of the offline model TRoll.
 
 ### Final slowdown towards the coiler
 

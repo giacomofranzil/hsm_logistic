@@ -74,7 +74,7 @@ class PieceResult:
     ``head`` and ``tail`` are the **physical** trajectories, with the head
     pinned at the coiler. ``head_virtual`` is the unconstrained head, which
     keeps advancing beyond the coiler: that is the one driving the zoom rolling
-    trigger, following the convention of the offline model.
+    trigger, following the convention of the offline model TRoll.
     """
 
     piece_id: str
@@ -417,7 +417,7 @@ def simulate_piece(
         # speed events: the target must be met AT the requested position, so the
         # ramp is anticipated. Only the nearest event ahead is armed.
         # zoom rolling keeps the opposite convention on purpose: its trigger is the
-        # position where the acceleration STARTS, as in the offline model
+        # position where the acceleration STARTS, as in the offline model TRoll
         pending = _next_event(active_events, lead_x, direction, armed_id)
         if pending is not None and pending.rel_pct:
             pending = None

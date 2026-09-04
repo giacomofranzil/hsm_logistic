@@ -98,7 +98,7 @@ Other conventions worth knowing:
   requested clearance is shorter than that distance the tool reports the one actually achieved rather
   than faking an impossible braking. This is not a detail: on the example mill, going from 0 to 20 m
   of clearance takes the minimum pacing from 105 to 148 seconds.
-* **Zoom rolling**: keeps the opposite convention on purpose, the one of the offline model, so its
+* **Zoom rolling**: keeps the opposite convention on purpose, the one of the offline model TRoll, so its
   trigger is where the acceleration **starts**. It uses the **virtual head**, that is it ignores the
   fact that the head stops at the coiler: if it falls beyond the coiler the zoom starts after a few
   wraps.

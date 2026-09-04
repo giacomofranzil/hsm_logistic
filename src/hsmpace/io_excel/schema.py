@@ -256,7 +256,7 @@ GUIDE_TEXT = [
     ("", False),
     ("Zoom rolling", True),
     (
-        "Zoom keeps the opposite convention on purpose, the one of the offline model: "
+        "Zoom keeps the opposite convention on purpose, the one of the offline model TRoll: "
         "zoom_trigger_m is the point where the acceleration STARTS, not where the speed is "
         "reached. It is measured from the stand on whose row it is written, and it uses "
         "the virtual head, that is it ignores the fact that the head stops at the coiler: "
