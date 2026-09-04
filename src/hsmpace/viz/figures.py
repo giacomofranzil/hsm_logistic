@@ -220,9 +220,11 @@ def gap_figure(analyses: list[GapAnalysis], gap_min: float) -> go.Figure:
         )
         return _layout(fig, "Gap between consecutive pieces", height=420)
 
+    y_values = [gap_min]
     for i, a in enumerate(analyses):
         color = PALETTE[i % len(PALETTE)]
         t, gap = a.series.polyline()
+        y_values.extend(gap)
         fig.add_trace(
             go.Scatter(
                 x=t,
@@ -234,6 +236,7 @@ def gap_figure(analyses: list[GapAnalysis], gap_min: float) -> go.Figure:
             )
         )
         if a.critical:
+            y_values.append(a.critical.gap)
             fig.add_trace(
                 go.Scatter(
                     x=[a.critical.t],
@@ -245,17 +248,30 @@ def gap_figure(analyses: list[GapAnalysis], gap_min: float) -> go.Figure:
                 )
             )
 
+    y_lo = min(y_values)
+    y_hi = max(y_values)
+    span = max(y_hi - y_lo, gap_min, 1.0)
+    pad = 0.08 * span
+    axis_lo = min(y_lo, 0.0) - pad
+    axis_hi = y_hi + pad
+
+    fig.add_hrect(
+        y0=axis_lo,
+        y1=gap_min,
+        fillcolor="rgba(214,39,40,0.06)",
+        line_width=0,
+        layer="below",
+    )
     fig.add_hline(
         y=gap_min,
         line=dict(color="#d62728", width=1.5, dash="dash"),
         annotation_text=f"minimum gap {gap_min:g} m",
         annotation_position="top left",
     )
-    fig.add_hrect(y0=-1e6, y1=gap_min, fillcolor="rgba(214,39,40,0.06)", line_width=0, layer="below")
 
     _layout(fig, "Gap between pieces on the line", height=420)
     fig.update_xaxes(title="Time [s]")
-    fig.update_yaxes(title="Tail to head distance [m]")
+    fig.update_yaxes(title="Tail to head distance [m]", range=[axis_lo, axis_hi])
     return fig
 
 

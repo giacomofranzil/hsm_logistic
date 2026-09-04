@@ -241,6 +241,11 @@ def main() -> None:
 
     with tabs[1]:
         st.plotly_chart(gap_figure(analyses, gap_min), width="stretch", config=PLOT_CONFIG)
+        st.caption(
+            "Each curve is the distance, over time, between the tail of the piece in front "
+            "and the head of the one behind. The dashed line is the threshold; the marker "
+            "is the closest approach of that pair."
+        )
         if analyses:
             st.dataframe(
                 [
