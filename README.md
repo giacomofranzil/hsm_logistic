@@ -101,12 +101,19 @@ Other conventions worth knowing:
 * **Zoom rolling**: keeps the opposite convention on purpose, the one of the offline model TRoll, so its
   trigger is where the acceleration **starts**. It uses the **virtual head**, that is it ignores the
   fact that the head stops at the coiler: if it falls beyond the coiler the zoom starts after a few
-  wraps.
+  wraps. The trigger is the virtual travel past the stand, **the same for every assigned coiler**:
+  TRoll does not treat the downcoilers, so the number is not recomputed as table plus wraps on that
+  mandrel. Pinning and the tail slowdown use the assigned coiler; the zoom ramp does not.
 * **Arrival at the coiler**: the slowdown starts as late as possible so that the tail reaches the
   coiler at `coiler_v_final_mps`, using the acceleration on the coiler row. The constraint is on
   the tail; the command is on the leading extremity, scaled by the remaining elongation chain. If
   the tail is still in the finishing mill, the tandem slows down anyway. If even that is not
   enough, the tool reports the speed the tail actually arrives at.
+* **Several coilers**: up to three in-line downcoilers, each at its own `x`. `coiler_pattern` on the
+  Simulation sheet is a repeating cycle of their ids, the same idea as `piece_products`
+  (`DC1,DC2` alternates). With two or three coilers the pattern is required and must name at least
+  two of them. A piece assigned to a downstream coiler does not stop at the one upstream. Do not put
+  the coiler on the product row: the same product often alternates.
 * **Coiler**: on gripping, the physical head is pinned and the length on the line decreases, while the
   virtual head carries on.
 * **Origin of the axis**: at release the head sits at the furnace exit and the tail one slab length
@@ -126,7 +133,7 @@ in mm, speeds in m/s, times in s, accelerations in m/s2**.
 | `Sections` | line sections with their own acceleration and up to 7 speed changes each, given as a distance from the section start plus a speed |
 | `Products` | slab dimensions and product data |
 | `PassSchedule` | per pass: stand, direction, reduction, widths, speed, reversing delay and clearance, tandem master, zoom |
-| `Simulation` | pacing, number of pieces, minimum gap, roller table acceleration, final speed at the coiler, scan and Monte Carlo parameters |
+| `Simulation` | pacing, number of pieces, product sequence, coiler cycle, minimum gap, roller table acceleration, final speed at the coiler, scan and Monte Carlo parameters |
 
 The `kind` column decides what the model does with a row, and `group` is functional rather than
 informative: stands sharing a group label form a tandem, and inside it the pass flagged as `master`

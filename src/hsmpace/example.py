@@ -1,9 +1,9 @@
 """Example case: conventional Hot Strip Mill.
 
 Layout with a two stand reversing roughing mill with edgers, transfer table,
-crop shear, seven stand finishing mill and downcoiler. The numbers are
-plausible but invented: they serve to run the tool and to show the format, they
-do not describe a real plant.
+crop shear, seven stand finishing mill and two in-line downcoilers. The numbers
+are plausible but invented: they serve to run the tool and to show the format,
+they do not describe a real plant.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ _EQUIPMENT = [
     Equipment("F6", "stand", 217.5, accel=1.5, group="FM", label="F6"),
     Equipment("F7", "stand", 223.0, accel=1.5, group="FM", label="F7"),
     Equipment("DC1", "coiler", 330.0, accel=0.9, label="Downcoiler 1"),
+    Equipment("DC2", "coiler", 348.0, accel=0.9, label="Downcoiler 2"),
 ]
 
 _SECTIONS = [
@@ -62,7 +63,7 @@ _SECTIONS = [
         ),
     ),
     Section("S4", x_start=175.0, length=15.0, label="Shear to F1"),
-    Section("S5", x_start=190.0, length=140.0, label="Finishing mill to coiler"),
+    Section("S5", x_start=190.0, length=170.0, label="Finishing mill to coilers"),
 ]
 
 # (pass_no, stand, direction, h_in, h_out, w_in, w_out, v_exit, reversing_delay, clearance)
@@ -103,9 +104,9 @@ def example_case() -> Case:
                 reversing_clearance=clearance,
                 master=(stand == "F7"),
                 zoom_pct=8.0 if stand == "F7" else 0.0,
-                # 130 m past F7 fall beyond the coiler, which sits at 107 m, so the
-                # trigger uses the virtual head: the zoom starts after a few wraps,
-                # exactly as in the offline model TRoll
+                # 130 m past F7, as virtual-head travel, the TRoll convention.
+                # The same number is used on DC1 and DC2: the zoom is not recomputed
+                # as table plus wraps on the assigned mandrel.
                 zoom_trigger=130.0 if stand == "F7" else 0.0,
             )
         )
@@ -123,8 +124,9 @@ def example_case() -> Case:
     settings = SimSettings(
         pacing=170.0,
         n_pieces=3,
+        coiler_pattern=("DC1", "DC2"),
         gap_min=5.0,
-        pacing_scan_min=90.0,
+        pacing_scan_min=70.0,
         pacing_scan_max=300.0,
         pacing_scan_steps=106,
         mc_runs=600,

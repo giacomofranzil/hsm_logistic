@@ -20,6 +20,8 @@ KIND_COILER = "coiler"
 KIND_MARKER = "marker"
 EQUIPMENT_KINDS = (KIND_START, KIND_STAND, KIND_COILER, KIND_MARKER)
 
+MAX_COILERS = 3
+
 
 class ModelError(ValueError):
     """Inconsistency in the model that prevents the simulation from running."""
@@ -154,8 +156,10 @@ class SimSettings:
     pacing: float = 180.0
     n_pieces: int = 3
     piece_products: tuple[str, ...] = ()
+    coiler_pattern: tuple[str, ...] = ()
+    """Repeating cycle of coiler ids (empty = the only coiler in the layout)."""
     gap_min: float = 5.0
-    pacing_scan_min: float = 60.0
+    pacing_scan_min: float = 70.0
     pacing_scan_max: float = 360.0
     pacing_scan_steps: int = 121
     mc_runs: int = 1000
@@ -245,6 +249,25 @@ class Case:
         if not self.products:
             raise ModelError("no product defined")
         return tuple([self.products[0].id] * self.settings.n_pieces)
+
+    @property
+    def piece_coiler_ids(self) -> tuple[str, ...]:
+        """Coiler assigned to each piece, cycling through ``coiler_pattern``."""
+        n = len(self.piece_products)
+        coilers = self.line.coilers
+        pattern = self.settings.coiler_pattern
+        if not coilers:
+            return tuple("" for _ in range(n))
+        if not pattern:
+            return tuple(coilers[0].id for _ in range(n))
+        return tuple(pattern[i % len(pattern)] for i in range(n))
+
+    def coiler_for_index(self, index: int) -> Equipment | None:
+        """Layout row of the coiler assigned to piece ``index``, or None."""
+        cid = self.piece_coiler_ids[index]
+        if not cid:
+            return None
+        return self.line.get(cid)
 
 
 @dataclass(frozen=True)
@@ -463,5 +486,51 @@ def validate_case(case: Case) -> list[Problem]:
         add("setting:table_accel_mps2", "the roller table acceleration must be positive")
     if case.settings.coiler_v_final < 0:
         add("setting:coiler_v_final_mps", "the final speed at the coiler cannot be negative")
+
+    coilers = line.coilers
+    if len(coilers) > MAX_COILERS:
+        add(
+            f"equipment:{coilers[MAX_COILERS].id}",
+            f"at most {MAX_COILERS} coilers are allowed in the layout",
+        )
+    pattern = case.settings.coiler_pattern
+    coiler_ids = {e.id for e in coilers}
+    for cid in pattern:
+        if cid not in coiler_ids:
+            add(
+                "setting:coiler_pattern",
+                f"coiler_pattern: {cid!r} is not a coiler in the layout",
+            )
+    if len(coilers) >= 2:
+        if not pattern:
+            add(
+                "setting:coiler_pattern",
+                "with two or more coilers, coiler_pattern is required "
+                "(comma separated ids, for example DC1,DC2). If only one coiler is used, "
+                "remove the others from the layout",
+            )
+        else:
+            used = set(pattern)
+            if len(used) < 2:
+                add(
+                    "setting:coiler_pattern",
+                    "with two or more coilers, coiler_pattern must name at least two "
+                    "distinct coilers. If every piece goes to one mandrel, remove the "
+                    "unused coilers from the layout",
+                )
+            for unused in sorted(coiler_ids - used):
+                warn(
+                    f"equipment:{unused}",
+                    f"{unused} is in the layout but not in coiler_pattern; remove it "
+                    "from the layout if it is not used",
+                )
+    elif pattern and coilers:
+        only = coilers[0].id
+        for cid in pattern:
+            if cid != only:
+                add(
+                    "setting:coiler_pattern",
+                    f"coiler_pattern names {cid!r} but the only coiler is {only}",
+                )
 
     return problems

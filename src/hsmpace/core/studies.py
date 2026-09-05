@@ -16,24 +16,42 @@ from .model import Case, Product, harmonise_tandem_speeds
 from .simulate import PieceResult, shift_result, simulate_piece
 
 
-def base_results(case: Case) -> dict[str, PieceResult]:
-    """One simulation per product, released at t = 0."""
-    out: dict[str, PieceResult] = {}
-    for product_id in dict.fromkeys(case.piece_products):
-        out[product_id] = simulate_piece(case, case.product(product_id), 0.0, product_id)
+def base_results(case: Case) -> dict[tuple[str, str], PieceResult]:
+    """One simulation per (product, coiler) pair that the sequence can request.
+
+    The cache is the cartesian product of the products in the case and the
+    coilers named by ``coiler_pattern`` (or the only coiler). That way the
+    number of pieces can change later, as the UI slider does, without missing
+    a pairing.
+    """
+    out: dict[tuple[str, str], PieceResult] = {}
+    if case.settings.coiler_pattern:
+        coiler_ids = list(dict.fromkeys(case.settings.coiler_pattern))
+    elif case.line.coilers:
+        coiler_ids = [case.line.coilers[0].id]
+    else:
+        coiler_ids = [""]
+    for product in case.products:
+        for cid in coiler_ids:
+            assigned = case.line.get(cid) if cid else None
+            out[(product.id, cid)] = simulate_piece(
+                case, product, 0.0, product.id, coiler=assigned
+            )
     return out
 
 
 def sequence(
     case: Case,
-    base: dict[str, PieceResult],
+    base: dict[tuple[str, str], PieceResult],
     pacing: float,
     jitter: list[float] | None = None,
 ) -> list[PieceResult]:
     out: list[PieceResult] = []
     for i, product_id in enumerate(case.piece_products):
+        assigned = case.coiler_for_index(i)
+        key = (product_id, assigned.id if assigned is not None else "")
         offset = i * pacing + (jitter[i] if jitter else 0.0)
-        out.append(shift_result(base[product_id], offset, f"#{i + 1}"))
+        out.append(shift_result(base[key], offset, f"#{i + 1}"))
     return out
 
 
@@ -69,7 +87,7 @@ def _point(case: Case, analyses: list[GapAnalysis], pacing: float) -> PacingPoin
 
 def gap_vs_pacing(
     case: Case,
-    base: dict[str, PieceResult] | None = None,
+    base: dict[tuple[str, str], PieceResult] | None = None,
     pacings: list[float] | None = None,
 ) -> list[PacingPoint]:
     """Minimum gap of the sequence as a function of the pacing.
@@ -95,7 +113,7 @@ def gap_vs_pacing(
 
 def min_feasible_pacing(
     case: Case,
-    base: dict[str, PieceResult] | None = None,
+    base: dict[tuple[str, str], PieceResult] | None = None,
     curve: list[PacingPoint] | None = None,
     tolerance: float = 0.1,
 ) -> PacingPoint | None:
@@ -212,7 +230,11 @@ def monte_carlo(
                 perturbed = perturb_case(case, rng)
                 offset = i * pacing + rng.gauss(0.0, settings.mc_release_sigma)
                 res = simulate_piece(
-                    perturbed, perturbed.product(product_id), offset, f"#{i + 1}"
+                    perturbed,
+                    perturbed.product(product_id),
+                    offset,
+                    f"#{i + 1}",
+                    coiler=case.coiler_for_index(i),
                 )
                 results.append(res)
             analyses = analyse_sequence(results, settings.gap_min, case.line)

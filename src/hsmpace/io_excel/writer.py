@@ -162,6 +162,7 @@ def write_case(case: Case, path: str | Path, include_data: bool = True) -> Path:
         "pacing_s": s.pacing,
         "n_pieces": s.n_pieces,
         "piece_products": ",".join(s.piece_products),
+        "coiler_pattern": ",".join(s.coiler_pattern),
         "gap_min_m": s.gap_min,
         "pacing_scan_min_s": s.pacing_scan_min,
         "pacing_scan_max_s": s.pacing_scan_max,

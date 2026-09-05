@@ -531,6 +531,10 @@ question R1 at the end.
   ignoring the stop at the coiler. This is intentional: if the coiler is at 80 m and the trigger at
   100 m, the zoom starts after a few wraps. The **physical** head does stay pinned at the coiler for the
   chart and for the gap computation: the two positions coexist in the model, under distinct names.
+  With several coilers the trigger is still that virtual travel from the stand, **the same number for
+  every assigned mandrel**. TRoll does not treat the downcoilers, so 130 m is not recomputed as table
+  plus wraps on DC1 versus DC2. Pinning and the tail slowdown use the assigned coiler; the zoom ramp
+  does not.
 - **Point 13 - thermal**: out of scope, input data assumed sound.
 - **Point 14 - furnace and coiler**: out of scope, bottlenecks assessed separately.
 - **Section 4 - Excel**: plain `.xlsx` without macros, units **fixed upstream in the template**, no unit
@@ -647,7 +651,15 @@ into the pass the ramp does start during rolling, which is a real manoeuvre, and
 
 **Zoom rolling keeps the opposite convention on purpose.** Its trigger is where the acceleration
 starts, because that is how the offline model TRoll defines it. Being the one exception, it is called out
-explicitly in the guide.
+explicitly in the guide. With several coilers the same virtual travel from the stand is used on every
+mandrel: TRoll does not treat the downcoilers, so the trigger is not recomputed as table plus wraps.
+
+**Several in-line coilers.** Up to three, each at its own `x`. Assignment is `coiler_pattern` on the
+Simulation sheet, a repeating cycle of ids like `piece_products` (`DC1,DC2` alternates). With two or
+three coilers the pattern is required and must name at least two of them; unused layout rows are a
+warning to remove them. A piece for a downstream coiler does not stop at the one upstream. Gap stays
+one-dimensional on the whole table. The coiler is not a product field: the same product often
+alternates.
 
 **Acceleration had no rule, now it has one.** It used to be whatever the last device to take command
 had set, which meant the transfer table inherited the acceleration of the roughing stand. Now: the

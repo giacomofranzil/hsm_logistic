@@ -86,7 +86,10 @@ PASS_COLUMNS = [
     ),
     ("master", "YES on the stand that sets the mass flow of the tandem group"),
     ("zoom_pct", "Zoom rolling: speed increase in per cent"),
-    ("zoom_trigger_m", "Zoom: travel of the virtual head beyond this stand, m"),
+    (
+        "zoom_trigger_m",
+        "Zoom: virtual-head travel past this stand, m (same for every coiler; TRoll)",
+    ),
     ("zoom_accel_mps2", "Zoom: acceleration, m/s2 (empty = the one of the axis)"),
 ]
 
@@ -98,8 +101,14 @@ SIM_KEYS = [
     ("pacing_s", 170.0, "Nominal cadence between one piece and the next, s"),
     ("n_pieces", 3, "Number of simulated pieces"),
     ("piece_products", "", "Comma separated product sequence (empty = repeat the first)"),
+    (
+        "coiler_pattern",
+        "",
+        "Repeating coiler cycle, comma separated (empty = the only coiler). "
+        "Required when the layout has two or three coilers, e.g. DC1,DC2",
+    ),
     ("gap_min_m", 5.0, "Minimum distance allowed between a tail and the next head, m"),
-    ("pacing_scan_min_s", 90.0, "Lower bound of the pacing scan, s"),
+    ("pacing_scan_min_s", 70.0, "Lower bound of the pacing scan, s"),
     ("pacing_scan_max_s", 300.0, "Upper bound of the pacing scan, s"),
     ("pacing_scan_steps", 106, "Number of points in the scan"),
     ("mc_runs", 600, "Number of Monte Carlo runs for the robustness study"),
@@ -148,7 +157,8 @@ GUIDE_TEXT = [
     (
         "    coiler   the coiler. The head stops here, and the acceleration on this row "
         "is the deceleration of the tail down to the final speed, used even while the "
-        "finishing mill is still rolling.",
+        "finishing mill is still rolling. Up to three coiler rows are allowed, in line, "
+        "each at its own position.",
         False,
     ),
     (
@@ -260,7 +270,11 @@ GUIDE_TEXT = [
         "zoom_trigger_m is the point where the acceleration STARTS, not where the speed is "
         "reached. It is measured from the stand on whose row it is written, and it uses "
         "the virtual head, that is it ignores the fact that the head stops at the coiler: "
-        "if the trigger falls beyond the coiler the zoom starts after a few wraps.",
+        "if the trigger falls beyond the coiler the zoom starts after a few wraps. The "
+        "same number is used whichever coiler takes the strip: TRoll does not treat the "
+        "downcoilers, so 130 m of virtual travel is not recomputed as table plus wraps "
+        "on the assigned mandrel. Pinning and the tail slowdown use that mandrel; the "
+        "zoom ramp does not.",
         False,
     ),
     ("", False),
@@ -276,6 +290,20 @@ GUIDE_TEXT = [
         "the latest start arrives, the tandem slows down anyway: that is what the plant "
         "does. If even that is not enough, the tool reports the speed the tail actually "
         "arrives at rather than faking an impossible braking.",
+        False,
+    ),
+    ("", False),
+    ("Several coilers", True),
+    (
+        "The layout may list up to three coilers, in line, each at its own x. "
+        "coiler_pattern on the Simulation sheet is a repeating cycle of their ids, "
+        "the same idea as piece_products: DC1,DC2 alternates; DC1,DC2,DC1,DC3 is a "
+        "longer cadence. Piece 1 takes the first id, piece 2 the second, then it wraps. "
+        "With two or three coilers the pattern is required and must name at least two "
+        "of them. If every piece goes to one mandrel, or if you use only two of three, "
+        "remove the unused rows from the Layout rather than leaving them idle. A piece "
+        "assigned to a downstream coiler does not stop at the one upstream: the head "
+        "passes it, which is the in-line layout.",
         False,
     ),
     ("", False),

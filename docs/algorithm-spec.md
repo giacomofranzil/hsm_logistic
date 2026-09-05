@@ -131,7 +131,10 @@ accel   = acceleration of the stand
 ```
 
 If the pass defines a zoom, a relative speed event is registered with trigger at
-`x_stand + zoom_trigger`, forward direction, valid while rolling as well.
+`x_stand + zoom_trigger`, forward direction, valid while rolling as well. That offset is
+**independent of which coiler takes the strip**. TRoll does not treat the downcoilers, so the same
+virtual travel is used for every assigned mandrel: it is not recomputed as table plus wraps. Pinning
+and the tail slowdown use that mandrel; the zoom trigger does not.
 
 **Tail-out** of pass `p`:
 
@@ -225,7 +228,19 @@ zoom_factor     = 1
 
 so the tail decelerates at `a_c` toward `coiler_v_final`. At every later tail-out `lam` falls and
 the same assignment is repeated: the commanded rate steps down, the tail deceleration stays
-constant. Section events and zoom are ignored once this slowdown has started.
+constant. Section events are ignored once this slowdown has started. Zoom is not: it is commanded on
+the virtual head at `x_stand + zoom_trigger`, the same position whichever mandrel is assigned, so it
+must not be suppressed just because the nearer coiler started braking earlier.
+
+### Several coilers
+
+The layout may list up to three coilers, in line, each at its own `x`. Assignment is a repeating
+cycle `coiler_pattern` of their ids (empty only when a single coiler is present). Piece `i` takes
+`pattern[i mod length]`. A piece assigned to a downstream coiler does not stop at the one upstream:
+the physical head is pinned at the assigned mandrel only. Gap remains one-dimensional on the whole
+table.
+
+In open-loop mode the cache key is `(product, assigned coiler)`, not the product alone.
 
 If the tail has already passed the latest start, braking begins at once. The speed it would then
 have at the mandrel, including the jumps at the remaining tail-outs, is reported when it exceeds
@@ -290,8 +305,8 @@ reversing roughing mill the constraint often falls between piece N and N+2.
 
 ## 8. Pacing studies
 
-In open-loop mode the pieces are decoupled: every product is simulated once and the copies are obtained
-by shifting the trajectories in time by `i * pacing`.
+In open-loop mode the pieces are decoupled: every `(product, assigned coiler)` pair is simulated once
+and the copies are obtained by shifting the trajectories in time by `i * pacing`.
 
 * **gap versus pacing curve**: for every value of the scan the sequence is built and the minimum over
   all pairs is taken.

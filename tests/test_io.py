@@ -41,6 +41,9 @@ def test_the_empty_template_has_the_sheets_and_headers(tmp_path):
     assert "tandem slows down anyway" in guide
     assert "as late as possible" in guide
     assert "offline model TRoll" in guide
+    assert "whichever coiler takes the strip" in guide
+    assert "coiler_pattern" in guide
+    assert "Several coilers" in guide
 
 
 def test_json_round_trip_preserves_the_case():
@@ -115,6 +118,47 @@ def test_an_older_workbook_without_optional_columns_still_loads(tmp_path):
     assert all(p.reversing_clearance == 0.0 for p in loaded.products[0].passes)
 
 
+def test_an_older_workbook_without_coiler_pattern_still_loads(tmp_path):
+    """A single-coiler file written before the pattern key remains valid."""
+    from dataclasses import replace
+
+    from hsmpace.core.model import Line
+
+    original = example_case()
+    equipment = tuple(e for e in original.line.equipment if e.id != "DC2")
+    one = replace(
+        original,
+        line=Line(equipment, original.line.sections),
+        settings=replace(original.settings, coiler_pattern=()),
+    )
+    path = write_case(one, tmp_path / "no_pattern.xlsx")
+    wb = load_workbook(path)
+    ws = wb["Simulation"]
+    for row in range(2, ws.max_row + 1):
+        if ws.cell(row=row, column=1).value == "coiler_pattern":
+            ws.delete_rows(row)
+            break
+    wb.save(path)
+
+    loaded = read_case(path)
+    assert loaded.settings.coiler_pattern == ()
+    assert loaded.piece_coiler_ids == ("DC1",) * loaded.settings.n_pieces
+
+
+def test_two_coilers_in_excel_require_the_pattern(tmp_path):
+    path = write_case(example_case(), tmp_path / "no_cycle.xlsx")
+    wb = load_workbook(path)
+    ws = wb["Simulation"]
+    for row in range(2, ws.max_row + 1):
+        if ws.cell(row=row, column=1).value == "coiler_pattern":
+            ws.cell(row=row, column=2).value = ""
+            break
+    wb.save(path)
+
+    with pytest.raises(ValidationError, match="coiler_pattern"):
+        read_case(path)
+
+
 def test_a_misplaced_reversal_value_is_only_a_warning(tmp_path):
     """The delay belongs to the pass the reversal comes after, not to any pass."""
     path = write_case(example_case(), tmp_path / "misplaced.xlsx")
@@ -154,6 +198,7 @@ def test_the_json_report_carries_segments_and_outcomes():
     json.dumps(report)  # must be serialisable
 
     assert report["pieces"][0]["head_segments"][0]["t0_s"] == 0.0
+    assert report["pieces"][0]["coiler_id"] in {"DC1", "DC2"}
     assert report["pieces"][0]["length_kinematic_m"] == pytest.approx(
         report["pieces"][0]["length_geometric_m"], rel=1e-6
     )

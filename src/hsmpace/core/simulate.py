@@ -38,7 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .kinematics import EPS_T, Segment, Trajectory, _quad_roots, solve_crossing
-from .model import FWD, Case, Line, ModelError, Product, RollingPass, SpeedEvent
+from .model import FWD, Case, Equipment, Line, ModelError, Product, RollingPass, SpeedEvent
 
 _MAX_ITER = 200_000
 _HORIZON = 2_000.0
@@ -88,6 +88,7 @@ class PieceResult:
     length_kinematic: float = 0.0
     length_geometric: float = 0.0
     x_coiler: float | None = None
+    coiler_id: str = ""
     warnings: tuple[str, ...] = field(default_factory=tuple)
 
     @property
@@ -211,6 +212,7 @@ def simulate_piece(
     product: Product,
     t_release: float = 0.0,
     piece_id: str = "P1",
+    coiler: Equipment | None = None,
 ) -> PieceResult:
     line: Line = case.line
     settings = case.settings
@@ -219,9 +221,11 @@ def simulate_piece(
         raise ModelError(f"product {product.id}: no pass defined")
 
     coilers = line.coilers
-    coiler = min(coilers, key=lambda e: e.x) if coilers else None
+    if coiler is None:
+        coiler = min(coilers, key=lambda e: e.x) if coilers else None
     x_coiler = coiler.x if coiler is not None else None
     x_finish = x_coiler if x_coiler is not None else line.x_max
+    coiler_id = coiler.id if coiler is not None else ""
 
     head = Trajectory()
     tail = Trajectory()
@@ -655,7 +659,9 @@ def simulate_piece(
         if action == "trigger":
             trig: SpeedEvent = payload  # type: ignore[assignment]
             fired[trig.id] = t
-            if coiler_braking:
+            # zoom is commanded on the virtual head and must not depend on which
+            # coiler takes the strip; other section events stay suppressed
+            if coiler_braking and not trig.rel_pct:
                 continue
             if engaged and not trig.during_pass:
                 deferred = trig
@@ -728,6 +734,7 @@ def simulate_piece(
         length_kinematic=length_kin,
         length_geometric=length_geo,
         x_coiler=x_coiler,
+        coiler_id=coiler_id,
         warnings=tuple(dict.fromkeys(warnings)),
     )
 
@@ -791,13 +798,17 @@ def simulate_case(case: Case) -> list[PieceResult]:
     once and the copies are shifted in time.
     """
     pacing = case.settings.pacing
-    cache: dict[str, PieceResult] = {}
+    cache: dict[tuple[str, str], PieceResult] = {}
     out: list[PieceResult] = []
     for i, product_id in enumerate(case.piece_products):
-        base = cache.get(product_id)
+        assigned = case.coiler_for_index(i)
+        key = (product_id, assigned.id if assigned is not None else "")
+        base = cache.get(key)
         if base is None:
-            base = simulate_piece(case, case.product(product_id), 0.0, product_id)
-            cache[product_id] = base
+            base = simulate_piece(
+                case, case.product(product_id), 0.0, product_id, coiler=assigned
+            )
+            cache[key] = base
         out.append(shift_result(base, i * pacing, f"#{i + 1}"))
     return out
 
@@ -820,5 +831,6 @@ def shift_result(result: PieceResult, dt: float, piece_id: str | None = None) ->
         length_kinematic=result.length_kinematic,
         length_geometric=result.length_geometric,
         x_coiler=result.x_coiler,
+        coiler_id=result.coiler_id,
         warnings=result.warnings,
     )

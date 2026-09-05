@@ -25,6 +25,10 @@ from hsmpace.core.studies import (
 from hsmpace.example import example_case
 
 
+def _sample(base, product_id="P1"):
+    return next(r for r in base.values() if r.product_id == product_id)
+
+
 @pytest.fixture(scope="module")
 def case():
     prepared, _ = harmonise_tandem_speeds(example_case())
@@ -37,7 +41,7 @@ def base(case):
 
 
 def test_gap_matches_the_difference_of_the_trajectories(case, base):
-    first = base["P1"]
+    first = _sample(base)
     second = shift_result(first, 120.0, "#2")
     series = gap_series(first, second)
 
@@ -49,11 +53,11 @@ def test_gap_matches_the_difference_of_the_trajectories(case, base):
 
 
 def test_the_head_always_stays_downstream_of_the_tail(case, base):
-    assert check_extremities(base["P1"]) == []
+    assert check_extremities(_sample(base)) == []
 
 
 def test_the_first_violation_lands_exactly_on_the_threshold(case, base):
-    first = base["P1"]
+    first = _sample(base)
     second = shift_result(first, 95.0, "#2")
     analysis = analyse_pair(first, second, gap_min=5.0, line=case.line)
 
@@ -64,7 +68,7 @@ def test_the_first_violation_lands_exactly_on_the_threshold(case, base):
 
 
 def test_the_time_gap_is_consistent_with_the_critical_position(case, base):
-    first = base["P1"]
+    first = _sample(base)
     second = shift_result(first, 110.0, "#2")
     analysis = analyse_pair(first, second, gap_min=5.0, line=case.line)
 
@@ -170,11 +174,18 @@ def test_different_products_in_the_same_sequence(case):
     )
     mixed, _ = harmonise_tandem_speeds(mixed)
     base_mixed = base_results(mixed)
-    assert set(base_mixed) == {"P1", "P2"}
+    assert {k[0] for k in base_mixed} == {"P1", "P2"}
+    assert {k[1] for k in base_mixed} >= {"DC1", "DC2"}
 
     results = sequence(mixed, base_mixed, 150.0)
     assert [r.product_id for r in results] == ["P1", "P2", "P1"]
     assert results[1].t_end != results[0].t_end + 150.0
+
+
+def test_the_pacing_scan_starts_at_seventy_seconds(case):
+    assert case.settings.pacing_scan_min == pytest.approx(70.0)
+    curve = gap_vs_pacing(case)
+    assert curve[0].pacing == pytest.approx(70.0)
 
 
 def test_direct_simulation_and_time_shift_agree(case):

@@ -56,6 +56,7 @@ def write_results(
         ["Minimum gap required [m]", case.settings.gap_min],
         ["Pieces simulated", len(results)],
         ["Product sequence", ", ".join(case.piece_products)],
+        ["Coiler sequence", ", ".join(cid or "-" for cid in case.piece_coiler_ids)],
     ]
     if analyses:
         worst = min(analyses, key=lambda a: a.min_gap)
