@@ -496,10 +496,17 @@ def _read_settings(
         if value:
             sequence = tuple(p.strip() for p in str(value).split(",") if p.strip())
 
+    pattern: tuple[str, ...] = ()
+    if "coiler_pattern" in raw:
+        value, _ = raw["coiler_pattern"]
+        if value:
+            pattern = tuple(p.strip() for p in str(value).split(",") if p.strip())
+
     return SimSettings(
         pacing=num("pacing_s", defaults.pacing),
         n_pieces=int(num("n_pieces", defaults.n_pieces)),
         piece_products=sequence,
+        coiler_pattern=pattern,
         gap_min=num("gap_min_m", defaults.gap_min),
         pacing_scan_min=num("pacing_scan_min_s", defaults.pacing_scan_min),
         pacing_scan_max=num("pacing_scan_max_s", defaults.pacing_scan_max),

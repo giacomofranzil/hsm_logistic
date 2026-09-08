@@ -25,14 +25,21 @@ for the new speed to be reached exactly at the position requested. The same
 rule governs the stop before a reversal and the deceleration towards the
 coiler, so there is a single semantics to remember: what you write in the input
 is the point where the target is met, not where the ramp begins.
+
+A reversing clearance is that stop position. The model derives the tail-out
+speed that makes it, slowing the mill while the tail is still gripped if the
+table alone cannot stop in time. The coiler slowdown is planned on the tail
+and commanded on the lead; it starts as late as possible, including while the
+finishing mill is still rolling.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from .kinematics import EPS_T, Segment, Trajectory, _quad_roots, solve_crossing
-from .model import FWD, Case, Line, ModelError, Product, RollingPass, SpeedEvent
+from .model import FWD, Case, Equipment, Line, ModelError, Product, RollingPass, SpeedEvent
 
 _MAX_ITER = 200_000
 _HORIZON = 2_000.0
@@ -82,6 +89,7 @@ class PieceResult:
     length_kinematic: float = 0.0
     length_geometric: float = 0.0
     x_coiler: float | None = None
+    coiler_id: str = ""
     warnings: tuple[str, ...] = field(default_factory=tuple)
 
     @property
@@ -107,6 +115,74 @@ def braking_distance(v_from: float, v_to: float, accel: float) -> float:
     if accel <= 0.0:
         return 0.0
     return abs(v_from * v_from - v_to * v_to) / (2.0 * accel)
+
+
+def reversal_tailout_speed(clearance: float, table_accel: float) -> float | None:
+    """Lead speed at tail-out that lets the table stop exactly at ``clearance``.
+
+    ``None`` means the cell is empty: stop as soon as possible after tail-out,
+    with no mill slowdown.
+    """
+    if clearance <= 1e-9 or table_accel <= 0.0:
+        return None
+    return math.sqrt(2.0 * table_accel * clearance)
+
+
+def _stands_ahead_of_tail(
+    x_tail: float, engaged: list[tuple[RollingPass, float, float]]
+) -> list[tuple[RollingPass, float]]:
+    return sorted(
+        [(rp, x) for rp, x, _t in engaged if x > x_tail + _X_EPS],
+        key=lambda item: item[1],
+    )
+
+
+def coiler_tail_waypoint(
+    x_tail: float,
+    x_coiler: float,
+    v_final: float,
+    a_c: float,
+    engaged: list[tuple[RollingPass, float, float]],
+) -> tuple[float, float]:
+    """Nearest (x, v) the tail must meet so it still arrives at ``v_final``.
+
+    Remaining stands are walked backward from the mandrel. At each tail-out the
+    tail speeds up by that pass's lambda, so the speed required just before the
+    stand is the speed required just after it, divided by lambda. Between
+    stands the tail is held at deceleration ``a_c``.
+    """
+    remaining = sorted(
+        [(rp, x) for rp, x, _t in engaged if x > x_tail + _X_EPS],
+        key=lambda item: -item[1],
+    )
+    x_wp = x_coiler
+    v_wp = v_final
+    for rp, x_stand in remaining:
+        gap = max(x_wp - x_stand, 0.0)
+        v_after = math.sqrt(max(v_wp * v_wp + 2.0 * a_c * gap, 0.0))
+        v_wp = v_after / rp.elongation
+        x_wp = x_stand
+    return x_wp, v_wp
+
+
+def tail_arrival_speed(
+    x_tail: float,
+    v_tail: float,
+    x_coiler: float,
+    a_c: float,
+    engaged: list[tuple[RollingPass, float, float]],
+) -> float:
+    """Speed the tail would have at the mandrel braking at ``a_c`` from here."""
+    x = x_tail
+    v = max(v_tail, 0.0)
+    for rp, x_stand in _stands_ahead_of_tail(x_tail, engaged):
+        gap = max(x_stand - x, 0.0)
+        v2 = v * v - 2.0 * a_c * gap
+        v = math.sqrt(max(v2, 0.0)) * rp.elongation
+        x = x_stand
+    gap = max(x_coiler - x, 0.0)
+    v2 = v * v - 2.0 * a_c * gap
+    return math.sqrt(max(v2, 0.0))
 
 
 def _ramp_start_time(
@@ -145,6 +221,7 @@ def simulate_piece(
     product: Product,
     t_release: float = 0.0,
     piece_id: str = "P1",
+    coiler: Equipment | None = None,
 ) -> PieceResult:
     line: Line = case.line
     settings = case.settings
@@ -153,9 +230,11 @@ def simulate_piece(
         raise ModelError(f"product {product.id}: no pass defined")
 
     coilers = line.coilers
-    coiler = min(coilers, key=lambda e: e.x) if coilers else None
+    if coiler is None:
+        coiler = min(coilers, key=lambda e: e.x) if coilers else None
     x_coiler = coiler.x if coiler is not None else None
     x_finish = x_coiler if x_coiler is not None else line.x_max
+    coiler_id = coiler.id if coiler is not None else ""
 
     head = Trajectory()
     tail = Trajectory()
@@ -187,6 +266,8 @@ def simulate_piece(
     stop_stand_id = ""
     stop_pass_no = 0
     stop_clearance = 0.0
+    reverse_slowing = False
+    v_star_rev: float | None = None
     coiler_braking = False
     waiting_until: float | None = None
     fired: dict[str, float] = {}
@@ -206,6 +287,23 @@ def simulate_piece(
         if section is not None and section.accel:
             return section.accel
         return settings.table_accel
+
+    def apply_coiler_command() -> None:
+        nonlocal coiler_braking, ramp_accel, zoom_factor, nominal_target
+        coiler_braking = True
+        ramp_accel = coiler.accel * lam  # type: ignore[union-attr]
+        zoom_factor = 1.0
+        nominal_target = settings.coiler_v_final * lam
+
+    def pending_reversal() -> RollingPass | None:
+        if not engaged or next_idx >= len(passes) or next_idx < 1:
+            return None
+        current = passes[next_idx - 1]
+        if passes[next_idx].direction == current.direction:
+            return None
+        if not any(rp.pass_no == current.pass_no for rp, _x, _t in engaged):
+            return None
+        return current
 
     while not done:
         iterations += 1
@@ -231,6 +329,8 @@ def simulate_piece(
             ramp_accel = None
             reversing = False
             braking = False
+            reverse_slowing = False
+            v_star_rev = None
             events.append(
                 SimEvent(
                     t, "reverse_end", nxt.equipment_id, x_head, f"heading to pass {nxt.pass_no}"
@@ -262,6 +362,52 @@ def simulate_piece(
         horizon = min(t + _HORIZON, t_max)
         candidates: list[tuple[float, str, object]] = []
 
+        # mill slowdown so tail-out speed lets the table stop exactly at clearance
+        rev_pass = pending_reversal()
+        if (
+            rev_pass is not None
+            and not reverse_slowing
+            and not reversing
+            and not coiler_braking
+            and rev_pass.reversing_clearance > 1e-9
+        ):
+            x_rev = line.get(rev_pass.equipment_id).x
+            a_table = table_accel(x_rev + direction * rev_pass.reversing_clearance)
+            v_star = reversal_tailout_speed(rev_pass.reversing_clearance, a_table)
+            a_stand = line.get(rev_pass.equipment_id).accel
+            if v_star is not None and v_lead > v_star + _V_EPS and a_stand > 0.0:
+                d_need = (v_lead * v_lead - v_star * v_star) / (2.0 * lam * a_stand)
+                d_tail = direction * (x_rev - trail_x)
+                if d_tail <= d_need + 1e-9:
+                    reverse_slowing = True
+                    v_star_rev = v_star
+                    ramp_accel = a_stand
+                    zoom_factor = 1.0
+                    nominal_target = v_star
+                    events.append(
+                        SimEvent(
+                            t,
+                            "reverse_slowdown",
+                            rev_pass.equipment_id,
+                            trail_x,
+                            f"v* {v_star:.2f} m/s at tail-out for "
+                            f"{rev_pass.reversing_clearance:.1f} m clearance",
+                        )
+                    )
+                    continue
+                t_hit = solve_crossing(
+                    t,
+                    trail_x,
+                    trail_v,
+                    trail_a,
+                    x_rev - direction * d_need,
+                    t,
+                    horizon,
+                    direction,
+                )
+                if t_hit is not None:
+                    candidates.append((t_hit, "rev_mill_brake", (v_star, a_stand, rev_pass)))
+
         # reversal: the piece must come to rest with the extremity closest to the
         # stand at `reversing_clearance` metres from it
         if reversing and not braking:
@@ -273,7 +419,8 @@ def simulate_piece(
                     warnings.append(
                         f"pass {stop_pass_no}: {stop_clearance:.1f} m of clearance requested "
                         f"from {stop_stand_id}, {achieved:.1f} m achievable. At {v_lead:.2f} m/s "
-                        f"with {accel:.2f} m/s2 the piece cannot stop any earlier."
+                        f"with {accel:.2f} m/s2 the piece cannot stop any earlier, even after "
+                        f"slowing the mill."
                     )
                 braking = True
                 nominal_target = 0.0
@@ -284,50 +431,56 @@ def simulate_piece(
             if t_hit is not None:
                 candidates.append((t_hit, "brake", None))
 
-        # deceleration towards the coiler: the tail must get there at the final speed
-        free_run = not engaged and next_idx >= len(passes) and not reversing
+        # deceleration towards the coiler, including while the mill is still rolling
         if (
             x_coiler is not None
             and coiler is not None
-            and free_run
             and not coiler_braking
+            and not reversing
+            and not reverse_slowing
             and direction == FWD
-            and v_lead > settings.coiler_v_final + _V_EPS
+            and next_idx >= len(passes)
         ):
-            d_brake = braking_distance(v_lead, settings.coiler_v_final, coiler.accel)
-            x_brake = x_coiler - d_brake
-            if trail_x >= x_brake - 1e-9:
-                if trail_x > x_brake + _X_EPS:
-                    reachable = max(
-                        settings.coiler_v_final,
-                        (v_lead * v_lead - 2.0 * coiler.accel * (x_coiler - trail_x)) ** 0.5
-                        if v_lead * v_lead > 2.0 * coiler.accel * (x_coiler - trail_x)
-                        else settings.coiler_v_final,
+            trail_speed = abs(trail_v)
+            x_wp, v_wp = coiler_tail_waypoint(
+                trail_x, x_coiler, settings.coiler_v_final, coiler.accel, engaged
+            )
+            if trail_speed > v_wp + _V_EPS:
+                d_brake = braking_distance(trail_speed, v_wp, coiler.accel)
+                x_brake = x_wp - d_brake
+                if trail_x >= x_brake - 1e-9:
+                    if trail_x > x_brake + _X_EPS:
+                        reachable = tail_arrival_speed(
+                            trail_x, trail_speed, x_coiler, coiler.accel, engaged
+                        )
+                        if reachable > settings.coiler_v_final + 0.05:
+                            where = (
+                                "mill is still rolling"
+                                if engaged
+                                else "run-out table"
+                            )
+                            warnings.append(
+                                f"coiler: the tail cannot slow down to "
+                                f"{settings.coiler_v_final:.1f} m/s "
+                                f"({where}). At {coiler.accel:.2f} m/s2 it arrives at "
+                                f"{reachable:.1f} m/s."
+                            )
+                    apply_coiler_command()
+                    events.append(
+                        SimEvent(
+                            t,
+                            "coiler_slowdown",
+                            coiler.id,
+                            trail_x,
+                            f"target {settings.coiler_v_final:.1f} m/s at the mandrel",
+                        )
                     )
-                    warnings.append(
-                        f"coiler: the tail cannot slow down to {settings.coiler_v_final:.1f} m/s "
-                        f"within the run-out table. At {coiler.accel:.2f} m/s2 it arrives at "
-                        f"{reachable:.1f} m/s; "
-                        f"{braking_distance(v_lead, settings.coiler_v_final, coiler.accel):.0f} m "
-                        f"would be needed against the {x_coiler - trail_x:.0f} m available."
-                    )
-                coiler_braking = True
-                ramp_accel = coiler.accel
-                zoom_factor = 1.0
-                nominal_target = settings.coiler_v_final
-                events.append(
-                    SimEvent(
-                        t,
-                        "coiler_slowdown",
-                        coiler.id,
-                        trail_x,
-                        f"target {settings.coiler_v_final:.1f} m/s at the mandrel",
-                    )
+                    continue
+                t_hit = solve_crossing(
+                    t, trail_x, trail_v, trail_a, x_brake, t, horizon, FWD
                 )
-                continue
-            t_hit = solve_crossing(t, trail_x, trail_v, trail_a, x_brake, t, horizon, FWD)
-            if t_hit is not None:
-                candidates.append((t_hit, "coiler_brake", None))
+                if t_hit is not None:
+                    candidates.append((t_hit, "coiler_brake", None))
 
         # speed events: the target must be met AT the requested position, so the
         # ramp is anticipated. Only the nearest event ahead is armed.
@@ -336,7 +489,7 @@ def simulate_piece(
         pending = _next_event(active_events, lead_x, direction, armed_id)
         if pending is not None and pending.rel_pct:
             pending = None
-        if pending is not None and not reversing and not coiler_braking:
+        if pending is not None and not reversing and not coiler_braking and not reverse_slowing:
             gap0 = direction * (pending.x_trigger - lead_x)
             target = pending.v_target
             a_ramp = pending.accel or prevailing
@@ -392,6 +545,8 @@ def simulate_piece(
                 continue
             if reversing and ev.origin == "section":
                 continue
+            if reverse_slowing and ev.origin == "section":
+                continue
             last = fired.get(ev.id)
             t_hit = solve_crossing(
                 t, lead_x, lead_v, lead_a, ev.x_trigger, t, horizon, direction
@@ -438,11 +593,27 @@ def simulate_piece(
             nominal_target = 0.0
             continue
 
-        if action == "coiler_brake":
-            coiler_braking = True
-            ramp_accel = coiler.accel  # type: ignore[union-attr]
+        if action == "rev_mill_brake":
+            v_star, a_stand, rp_rev = payload  # type: ignore[misc]
+            reverse_slowing = True
+            v_star_rev = float(v_star)
+            ramp_accel = float(a_stand)
             zoom_factor = 1.0
-            nominal_target = settings.coiler_v_final
+            nominal_target = float(v_star)
+            events.append(
+                SimEvent(
+                    t,
+                    "reverse_slowdown",
+                    rp_rev.equipment_id,
+                    trail_x,
+                    f"v* {v_star_rev:.2f} m/s at tail-out for "
+                    f"{rp_rev.reversing_clearance:.1f} m clearance",
+                )
+            )
+            continue
+
+        if action == "coiler_brake":
+            apply_coiler_command()
             events.append(
                 SimEvent(
                     t,
@@ -471,7 +642,8 @@ def simulate_piece(
 
         if action == "ramp":
             v_lead = v_target
-            ramp_accel = None
+            if not coiler_braking:
+                ramp_accel = None
             if braking and v_target <= _V_EPS:
                 rp_prev = _last_completed_pass(passes, next_idx)
                 waiting_until = t + (rp_prev.reversing_delay if rp_prev else 0.0)
@@ -527,11 +699,24 @@ def simulate_piece(
             rp, x_stand, t_in = engaged.pop(idx)
             lam /= rp.elongation
             occupancy.append(Occupancy(rp.equipment_id, rp.pass_no, t_in, t))
-            events.append(
-                SimEvent(t, "tail_out", rp.equipment_id, x_stand, f"pass {rp.pass_no}")
-            )
+            v_star_here = v_star_rev
+            if v_star_here is None and rp.reversing_clearance > 1e-9:
+                v_star_here = reversal_tailout_speed(
+                    rp.reversing_clearance,
+                    table_accel(x_stand + direction * rp.reversing_clearance),
+                )
+            if v_star_here is not None:
+                detail = (
+                    f"pass {rp.pass_no}: tail-out {v_lead:.2f} m/s "
+                    f"(v* {v_star_here:.2f} m/s for {rp.reversing_clearance:.1f} m clearance)"
+                )
+            else:
+                detail = f"pass {rp.pass_no}"
+            events.append(SimEvent(t, "tail_out", rp.equipment_id, x_stand, detail))
+            if coiler_braking:
+                apply_coiler_command()
             if not engaged:
-                if deferred is not None:
+                if deferred is not None and not coiler_braking:
                     pendingev, deferred = deferred, None
                     if pendingev.rel_pct:
                         zoom_factor *= 1.0 + pendingev.rel_pct / 100.0
@@ -553,23 +738,32 @@ def simulate_piece(
                     zoom_factor = 1.0
                     ramp_accel = None
                     armed_id = None
+                    reverse_slowing = False
                     # the clearance belongs to the pass the reversal comes after
                     stop_stand_x = x_stand
                     stop_stand_id = rp.equipment_id
                     stop_pass_no = rp.pass_no
                     stop_clearance = rp.reversing_clearance
                     stop_target = x_stand + direction * stop_clearance
-                    events.append(
-                        SimEvent(
-                            t,
-                            "reverse_start",
-                            rp.equipment_id,
-                            x_stand,
-                            f"clearance requested {stop_clearance:.1f} m"
-                            if stop_clearance
-                            else "stopping at the shortest braking distance",
+                    a_table = table_accel(stop_target)
+                    v_star_rev = reversal_tailout_speed(stop_clearance, a_table)
+                    if v_star_rev is not None:
+                        detail = (
+                            f"clearance {stop_clearance:.1f} m, v* {v_star_rev:.2f} m/s, "
+                            f"tail-out {v_lead:.2f} m/s"
                         )
+                    elif stop_clearance:
+                        detail = f"clearance requested {stop_clearance:.1f} m"
+                    else:
+                        detail = "stopping at the shortest braking distance"
+                    events.append(
+                        SimEvent(t, "reverse_start", rp.equipment_id, x_stand, detail)
                     )
+                    if v_star_rev is not None and v_lead > v_star_rev + 0.05:
+                        warnings.append(
+                            f"pass {rp.pass_no}: v* {v_star_rev:.2f} m/s needed at tail-out "
+                            f"for {stop_clearance:.1f} m clearance, {v_lead:.2f} m/s reached"
+                        )
                     if v_lead <= _V_EPS and stop_clearance <= 1e-9:
                         braking = True
                         waiting_until = t + rp.reversing_delay
@@ -578,6 +772,10 @@ def simulate_piece(
         if action == "trigger":
             trig: SpeedEvent = payload  # type: ignore[assignment]
             fired[trig.id] = t
+            # zoom is commanded on the virtual head and must not depend on which
+            # coiler takes the strip; other section events stay suppressed
+            if (coiler_braking or reverse_slowing) and not trig.rel_pct:
+                continue
             if engaged and not trig.during_pass:
                 deferred = trig
                 armed_id = None
@@ -649,6 +847,7 @@ def simulate_piece(
         length_kinematic=length_kin,
         length_geometric=length_geo,
         x_coiler=x_coiler,
+        coiler_id=coiler_id,
         warnings=tuple(dict.fromkeys(warnings)),
     )
 
@@ -712,13 +911,17 @@ def simulate_case(case: Case) -> list[PieceResult]:
     once and the copies are shifted in time.
     """
     pacing = case.settings.pacing
-    cache: dict[str, PieceResult] = {}
+    cache: dict[tuple[str, str], PieceResult] = {}
     out: list[PieceResult] = []
     for i, product_id in enumerate(case.piece_products):
-        base = cache.get(product_id)
+        assigned = case.coiler_for_index(i)
+        key = (product_id, assigned.id if assigned is not None else "")
+        base = cache.get(key)
         if base is None:
-            base = simulate_piece(case, case.product(product_id), 0.0, product_id)
-            cache[product_id] = base
+            base = simulate_piece(
+                case, case.product(product_id), 0.0, product_id, coiler=assigned
+            )
+            cache[key] = base
         out.append(shift_result(base, i * pacing, f"#{i + 1}"))
     return out
 
@@ -741,5 +944,6 @@ def shift_result(result: PieceResult, dt: float, piece_id: str | None = None) ->
         length_kinematic=result.length_kinematic,
         length_geometric=result.length_geometric,
         x_coiler=result.x_coiler,
+        coiler_id=result.coiler_id,
         warnings=result.warnings,
     )

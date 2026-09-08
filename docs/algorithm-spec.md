@@ -130,7 +130,8 @@ accel   = acceleration of the stand
 ```
 
 If the pass defines a zoom, a relative speed event is registered with trigger at
-`x_stand + zoom_trigger`, forward direction, valid while rolling as well.
+`x_stand + zoom_trigger`, forward direction, valid while rolling as well. That offset is
+independent of which coiler takes the strip.
 
 **Tail-out** of pass `p`:
 
@@ -152,12 +153,25 @@ describe the reversal that follows it. At tail-out the trailing extremity sits e
 the clearance is measured from there. The approach speed used after the wait belongs instead to the
 pass being approached.
 
+**Reversing clearance is the stop position.** Empty means stop as soon as possible after tail-out, at
+`v^2/(2a)` of the table. When a distance `C` is written, the required lead speed at tail-out is
+
+```
+v* = sqrt(2 * a_table * C)
+```
+
+with `a_table` the acceleration of the section that contains the stop. `v*` is reported on the
+`reverse_slowdown` and `tail_out` events; it is not written back into the pass speed. If the current
+pass speed already sits at or below `v*`, the mill does not slow and the table brakes after tail-out
+so as to stop exactly at `C`. If it is higher, the mill decelerates as late as possible at the stand
+acceleration while the tail is still gripped (`a_trail = a_stand / lambda`), so that `v_lead = v*` at
+tail-out; the table then uses the whole of `C` from `v*` down to rest. If even starting from the bite
+is not enough, braking is applied at the available accelerations and the overrun is reported.
+
 **Targeted braking.** While braking has not started yet, at every iteration the braking distance
 `d = v^2 / (2a)` is computed together with the point at which braking must begin,
 `x_brake = x_stop - direction * d`. If the trailing extremity has not reached it yet a crossing
-candidate is added; if it has already passed it, braking starts immediately and, when the requested
-clearance is greater than zero, the achieved clearance is reported as larger than the requested one.
-With a zero clearance the request is "stop as soon as possible" and there is nothing to report.
+candidate is added; if it has already passed it, braking starts immediately.
 
 After tail-out the body is rigid, `lam = 1`, so both extremities translate together and the braking
 distance is the same for either of them.
@@ -202,10 +216,37 @@ starts, following the convention of the offline model.
 
 ### Final slowdown towards the coiler
 
-Once no pass is left and no stand is engaged, the same targeted braking is applied to the trailing
-extremity so that it reaches `coiler_v_final` at the coiler position, using the acceleration declared
-on the coiler row. When the run-out table is shorter than the distance required, braking starts at once
-and the speed the tail actually arrives at is reported.
+Once the last pass has bitten (`next_pass` past the end of the schedule) and the piece is travelling
+forward, the slowdown is planned on the **tail** so that it meets `coiler_v_final` at the assigned
+coiler, using the acceleration `a_c` declared on that coiler row. It starts as late as possible,
+including while stands are still engaged.
+
+The remaining stands the tail has not yet cleared are walked **backward** from the mandrel. At each
+stand the tail will speed up by that pass's lambda, so the speed required just before tail-out is
+the speed required just after it, divided by lambda. Between stands the tail is held at deceleration
+`a_c`. The walk yields a waypoint `(x_wp, v_wp)`: the first remaining stand at the tail speed it
+must have there, or the coiler itself at `v_final` when nothing is left engaged. Targeted braking
+is then applied to the tail toward that waypoint.
+
+When braking starts the command is put on the leading extremity:
+
+```
+ramp_accel      = a_c * lam
+nominal_target  = coiler_v_final * lam
+zoom_factor     = 1
+```
+
+so the tail decelerates at `a_c` toward `coiler_v_final`. At every later tail-out `lam` falls and
+the same assignment is repeated. Section events are ignored once this slowdown has started; zoom on
+the virtual head is not.
+
+If the tail has already passed the latest start, braking begins at once. The speed it would then
+have at the mandrel, including the jumps at the remaining tail-outs, is reported when it exceeds
+`coiler_v_final`.
+
+The layout may list up to three coilers in line. Assignment is the repeating cycle `coiler_pattern`.
+A piece assigned to a downstream coiler does not stop at the one upstream. In open-loop mode the
+cache key is `(product, assigned coiler)`.
 
 **Reversal wait**: two zero velocity segments are emitted for the duration of the `reversing_delay`,
 then `direction` is flipped, the approach speed of the next pass is assigned together with the
@@ -266,8 +307,8 @@ reversing roughing mill the constraint often falls between piece N and N+2.
 
 ## 8. Pacing studies
 
-In open-loop mode the pieces are decoupled: every product is simulated once and the copies are obtained
-by shifting the trajectories in time by `i * pacing`.
+In open-loop mode the pieces are decoupled: every `(product, assigned coiler)` pair is simulated once
+and the copies are obtained by shifting the trajectories in time by `i * pacing`.
 
 * **gap versus pacing curve**: for every value of the scan the sequence is built and the minimum over
   all pairs is taken.

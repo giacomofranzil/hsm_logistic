@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import pytest
 
 from hsmpace.core.model import (
     FWD,
     REV,
+    MAX_COILERS,
     Case,
     Equipment,
     Line,
@@ -21,7 +23,8 @@ from hsmpace.core.model import (
     harmonise_tandem_speeds,
     validate_case,
 )
-from hsmpace.core.simulate import simulate_piece
+from hsmpace.core.simulate import simulate_case, simulate_piece
+from hsmpace.core.studies import base_results
 
 
 def _line(stands: list[tuple[str, float]], coiler_x: float = 200.0, v_start: float = 2.0) -> Line:
@@ -165,8 +168,8 @@ def test_the_reversing_clearance_is_honoured():
     assert res.head.x_at(second.t) == pytest.approx(68.0, abs=1e-6)
 
 
-def test_an_unreachable_clearance_is_reported():
-    """Braking at 1 m/s2 from 3 m/s needs 4.5 m: asking for 2 is impossible."""
+def test_an_unreachable_clearance_slows_the_mill_to_v_star():
+    """Braking at 1 m/s2 from 3 m/s needs 4.5 m; C = 2 m so v* = 2 m/s at tail-out."""
     line = _line([("R", 80.0)], coiler_x=400.0)
     case = _case(
         line,
@@ -177,10 +180,14 @@ def test_an_unreachable_clearance_is_reported():
         ],
     )
     res = simulate_piece(case, case.products[0])
-
-    assert any("clearance" in w and "4.5 m" in w for w in res.warnings)
+    assert res.warnings == ()
+    slow = next(e for e in res.events if e.kind == "reverse_slowdown")
+    assert "v* 2.00" in slow.detail
     wait = next(e for e in res.events if e.kind == "reverse_wait")
-    assert res.tail.x_at(wait.t) == pytest.approx(84.5, abs=1e-6)
+    assert res.tail.x_at(wait.t) == pytest.approx(82.0, abs=1e-5)
+    tail_out = next(e for e in res.events if e.kind == "tail_out")
+    assert "v* 2.00" in tail_out.detail
+    assert res.tail.v_at(tail_out.t) == pytest.approx(2.0, abs=1e-3)
 
 
 def test_without_clearance_the_stop_is_at_the_braking_distance():
@@ -351,3 +358,107 @@ def test_a_reverse_last_pass_is_rejected():
     )
     problems = [p.message for p in validate_case(case)]
     assert any("last pass" in p for p in problems)
+
+
+def test_the_coiler_slowdown_starts_while_the_mill_is_still_rolling():
+    """Short run-out: the tandem must brake before the last tail-out."""
+    line = _line([("F1", 50.0), ("F2", 60.0)], coiler_x=80.0)
+    case = _case(
+        line,
+        [
+            _pass(1, "F1", FWD, 100.0, 50.0, 4.0),
+            _pass(2, "F2", FWD, 50.0, 25.0, 8.0),
+        ],
+    )
+    res = simulate_piece(case, case.products[0])
+    last_tail = max(e.t for e in res.events if e.kind == "tail_out")
+    slow = next(e for e in res.events if e.kind == "coiler_slowdown")
+    assert slow.t < last_tail
+    assert res.tail.v_at(res.t_end) == pytest.approx(1.0, abs=1e-3)
+
+
+def _two_coilers(
+    stands: list[tuple[str, float]],
+    dc1: float = 200.0,
+    dc2: float = 230.0,
+    extra: list[Equipment] | None = None,
+) -> Line:
+    equipment = [Equipment("ST", "start", 0.0, accel=1.0)]
+    equipment += [Equipment(name, "stand", x, accel=1.0) for name, x in stands]
+    equipment.append(Equipment("DC1", "coiler", dc1, accel=1.0))
+    equipment.append(Equipment("DC2", "coiler", dc2, accel=1.0))
+    if extra:
+        equipment.extend(extra)
+    x_end = max(e.x for e in equipment if e.kind == "coiler")
+    section = Section(
+        "S1",
+        x_start=0.0,
+        length=x_end,
+        events=(SpeedEvent("S1-1", "S1", x_trigger=0.0, v_target=2.0, direction=FWD),),
+    )
+    return Line(tuple(equipment), (section,))
+
+
+def test_alternate_coilers_pin_at_their_own_position():
+    case = replace(
+        _case(_two_coilers([("R", 50.0)]), [_pass(1, "R", FWD, 100.0, 50.0, 4.0)]),
+        settings=SimSettings(n_pieces=4, coiler_pattern=("DC1", "DC2")),
+    )
+    results = simulate_case(case)
+    assert [r.coiler_id for r in results] == ["DC1", "DC2", "DC1", "DC2"]
+    assert results[0].x_coiler == pytest.approx(200.0)
+    assert results[1].x_coiler == pytest.approx(230.0)
+    assert max(s.x1 for s in results[0].head.segments) <= 200.0 + 1e-6
+    assert max(s.x1 for s in results[1].head.segments) > 200.0 + 1e-3
+    assert max(s.x1 for s in results[1].head.segments) <= 230.0 + 1e-6
+
+
+def test_two_coilers_without_a_pattern_are_rejected():
+    case = _case(_two_coilers([("R", 50.0)]), [_pass(1, "R", FWD, 100.0, 50.0, 4.0)])
+    messages = [p.message for p in validate_case(case) if not p.is_warning]
+    assert any("coiler_pattern is required" in m for m in messages)
+
+
+def test_the_cache_does_not_mix_coilers():
+    case = replace(
+        _case(_two_coilers([("R", 50.0)]), [_pass(1, "R", FWD, 100.0, 50.0, 4.0)]),
+        settings=SimSettings(n_pieces=4, coiler_pattern=("DC1", "DC2")),
+    )
+    base = base_results(case)
+    assert ("P", "DC1") in base and ("P", "DC2") in base
+    assert base[("P", "DC1")].x_coiler == pytest.approx(200.0)
+    assert base[("P", "DC2")].x_coiler == pytest.approx(230.0)
+
+
+def test_zoom_trigger_is_the_same_on_both_coilers():
+    line = _two_coilers([("R", 50.0)], dc1=120.0, dc2=180.0)
+    case = replace(
+        _case(
+            line,
+            [_pass(1, "R", FWD, 100.0, 50.0, 4.0, zoom_pct=10.0, zoom_trigger=80.0)],
+            slab_len=40.0,
+        ),
+        settings=SimSettings(n_pieces=2, coiler_pattern=("DC1", "DC2")),
+    )
+    near = simulate_piece(case, case.products[0], coiler=case.line.get("DC1"))
+    far = simulate_piece(case, case.products[0], coiler=case.line.get("DC2"))
+    zoom_near = next(e for e in near.events if e.kind == "zoom")
+    zoom_far = next(e for e in far.events if e.kind == "zoom")
+    assert zoom_near.x == pytest.approx(130.0)
+    assert zoom_far.x == pytest.approx(zoom_near.x)
+
+
+def test_more_than_three_coilers_are_rejected():
+    extra = [
+        Equipment("DC3", "coiler", 260.0, accel=1.0),
+        Equipment("DC4", "coiler", 280.0, accel=1.0),
+    ]
+    case = replace(
+        _case(
+            _two_coilers([("R", 50.0)], extra=extra),
+            [_pass(1, "R", FWD, 100.0, 50.0, 4.0)],
+        ),
+        settings=SimSettings(n_pieces=2, coiler_pattern=("DC1", "DC2")),
+    )
+    messages = [p.message for p in validate_case(case) if not p.is_warning]
+    assert any(f"at most {MAX_COILERS} coilers" in m for m in messages)

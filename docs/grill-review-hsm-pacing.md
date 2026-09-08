@@ -612,6 +612,12 @@ and brakes so as to stop exactly there. If the requested clearance is shorter th
 the tool reports the clearance actually achieved instead of faking an impossible braking; leaving the
 cell empty keeps the "stop as soon as possible" behaviour.
 
+**Update, 8 September.** The clearance is now master. The model derives the tail-out speed
+`v* = sqrt(2 a_table C)` and, when the pass is faster, slows the mill at the stand acceleration
+while the tail is still gripped, then the table finishes the stop at the section acceleration.
+`v*` is an output on the event log, not a rewrite of `v_exit`. The same idea applies at the
+coiler: the slowdown starts as late as possible even while the finishing mill is still rolling.
+
 How much it weighs, on the example mill:
 
 | Clearance | Piece cycle | Minimum pacing |

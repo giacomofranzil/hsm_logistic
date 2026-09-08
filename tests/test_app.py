@@ -48,7 +48,7 @@ def test_the_main_charts_are_drawn(app: AppTest):
 def test_a_tight_pacing_produces_a_violation():
     at = AppTest.from_file(str(SCRIPT), default_timeout=180)
     at.run()
-    at.sidebar.slider[0].set_value(95.0).run()
+    at.sidebar.slider[0].set_value(75.0).run()
     assert not at.exception, [e.value for e in at.exception]
     outcome = next(m for m in at.metric if m.label == "Outcome")
     assert outcome.value == "violation"

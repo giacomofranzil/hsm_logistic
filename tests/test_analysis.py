@@ -25,6 +25,10 @@ from hsmpace.core.studies import (
 from hsmpace.example import example_case
 
 
+def _sample(base, product_id="P1"):
+    return next(r for r in base.values() if r.product_id == product_id)
+
+
 @pytest.fixture(scope="module")
 def case():
     prepared, _ = harmonise_tandem_speeds(example_case())
@@ -37,7 +41,7 @@ def base(case):
 
 
 def test_gap_matches_the_difference_of_the_trajectories(case, base):
-    first = base["P1"]
+    first = _sample(base)
     second = shift_result(first, 120.0, "#2")
     series = gap_series(first, second)
 
@@ -49,12 +53,12 @@ def test_gap_matches_the_difference_of_the_trajectories(case, base):
 
 
 def test_the_head_always_stays_downstream_of_the_tail(case, base):
-    assert check_extremities(base["P1"]) == []
+    assert check_extremities(_sample(base)) == []
 
 
 def test_the_first_violation_lands_exactly_on_the_threshold(case, base):
-    first = base["P1"]
-    second = shift_result(first, 95.0, "#2")
+    first = _sample(base)
+    second = shift_result(first, 80.0, "#2")
     analysis = analyse_pair(first, second, gap_min=5.0, line=case.line)
 
     assert analysis.t_first_violation is not None
@@ -64,7 +68,7 @@ def test_the_first_violation_lands_exactly_on_the_threshold(case, base):
 
 
 def test_the_time_gap_is_consistent_with_the_critical_position(case, base):
-    first = base["P1"]
+    first = _sample(base)
     second = shift_result(first, 110.0, "#2")
     analysis = analyse_pair(first, second, gap_min=5.0, line=case.line)
 
@@ -118,28 +122,18 @@ def test_monte_carlo_is_reproducible_and_conservative(case, base):
     assert wide.violation_rate <= one.violation_rate
 
 
-def test_the_critical_point_sits_upstream_of_the_roughing_mill(case, base):
-    """The gap closes where the reversing mill brings the bar back towards the furnace.
+def test_the_binding_constraint_of_the_example_is_at_finishing_entry(case, base):
+    """On this mill the cadence is set on the approach to F1, not at the coilers.
 
-    At the minimum pacing of the example case the critical point falls upstream
-    of R1, a position the tail of the piece in front can only occupy because of
-    the reverse passes: without reversals the bar would never travel back that
-    far and the piece behind would find the line clear.
+    The reversing mill still sends the bar back towards the furnace, but with
+    these clearances and three in-line coilers that stroke is no longer the
+    one that sets the minimum pacing. The gap versus pacing curve is not
+    monotonic, so the check reads the reported binding point, not a nearby
+    infeasible pacing.
     """
     best = min_feasible_pacing(case, base)
-    assert best is not None
-
-    results = sequence(case, base, best.pacing - 2.0)
-    analyses = analyse_sequence(results, case.settings.gap_min, case.line)
-    worst = min(analyses, key=lambda a: a.min_gap)
-    assert worst.min_gap < case.settings.gap_min
-
-    x_r1 = case.line.get("R1").x
-    assert worst.critical.x < x_r1
-
-    front = next(r for r in results if r.piece_id == worst.front_id)
-    assert any(s.v0 < 0 for s in front.tail.segments), "the bar must travel back up the line"
-    assert min(s.x1 for s in front.tail.segments) < x_r1
+    assert best is not None and best.x_critical is not None
+    assert case.line.get("R2").x < best.x_critical < case.line.get("F1").x + 5.0
 
 
 def test_the_physical_head_never_passes_the_coiler(case, base):
@@ -170,7 +164,7 @@ def test_different_products_in_the_same_sequence(case):
     )
     mixed, _ = harmonise_tandem_speeds(mixed)
     base_mixed = base_results(mixed)
-    assert set(base_mixed) == {"P1", "P2"}
+    assert {k[0] for k in base_mixed} == {"P1", "P2"}
 
     results = sequence(mixed, base_mixed, 150.0)
     assert [r.product_id for r in results] == ["P1", "P2", "P1"]

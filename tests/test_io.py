@@ -37,6 +37,12 @@ def test_the_empty_template_has_the_sheets_and_headers(tmp_path):
     header = [c.value for c in wb["Sections"][1]]
     assert "d1_m" in header and "accel_mps2" in header
     assert wb["Layout"].max_row == 1, "the template must contain no data"
+    guide = "\n".join(str(row[0].value or "") for row in wb["Guide"].iter_rows(min_col=1, max_col=1))
+    assert "offline model TRoll" in guide
+    assert "v* = sqrt" in guide
+    assert "whichever coiler takes the strip" in guide
+    assert "tandem slows down anyway" in guide
+    assert "coiler_pattern" in guide
 
 
 def test_json_round_trip_preserves_the_case():
@@ -150,6 +156,7 @@ def test_the_json_report_carries_segments_and_outcomes():
     json.dumps(report)  # must be serialisable
 
     assert report["pieces"][0]["head_segments"][0]["t0_s"] == 0.0
+    assert report["pieces"][0]["coiler_id"] in {"DC1", "DC2", "DC3"}
     assert report["pieces"][0]["length_kinematic_m"] == pytest.approx(
         report["pieces"][0]["length_geometric_m"], rel=1e-6
     )

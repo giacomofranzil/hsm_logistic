@@ -155,7 +155,11 @@ def main() -> None:
             "Minimum gap required [m]", min_value=0.0, value=float(settings.gap_min), step=1.0
         )
         n_pieces = st.slider(
-            "Pieces in sequence", min_value=2, max_value=8, value=max(2, settings.n_pieces)
+            "Pieces in sequence",
+            min_value=2,
+            max_value=8,
+            value=max(2, min(8, settings.n_pieces)),
+            help="The product and coiler cycles in the workbook repeat over this many pieces.",
         )
         time_down = st.checkbox("Time increasing downwards", value=settings.time_axis_down)
         show_virtual = st.checkbox(
@@ -170,6 +174,7 @@ def main() -> None:
             "Runs", min_value=50, max_value=20000, value=int(settings.mc_runs), step=50
         )
 
+    seq = settings.piece_products
     case = replace(
         case,
         settings=replace(
@@ -177,7 +182,7 @@ def main() -> None:
             pacing=pacing,
             gap_min=gap_min,
             n_pieces=n_pieces,
-            piece_products=settings.piece_products[:n_pieces] if settings.piece_products else (),
+            piece_products=tuple(seq[i % len(seq)] for i in range(n_pieces)) if seq else (),
             mc_runs=int(mc_runs),
             time_axis_down=time_down,
         ),
@@ -195,6 +200,13 @@ def main() -> None:
     if run_mc:
         with st.spinner(f"Monte Carlo over {int(mc_runs)} runs..."):
             mc = monte_carlo(case, pacing=pacing, runs=int(mc_runs))
+
+    assignment = ", ".join(f"{r.piece_id}→{r.coiler_id or '-'}" for r in results)
+    st.caption(
+        f"Coiler assignment (repeating cycle from the workbook): {assignment}. "
+        "Zoom rolling uses the same virtual-head trigger for every mandrel; "
+        "pinning and the tail slowdown use the assigned coiler."
+    )
 
     cols = st.columns(4)
     cols[0].metric("Minimum gap", f"{worst.min_gap:.1f} m" if worst else "no interaction")
@@ -290,6 +302,12 @@ def main() -> None:
         piece_ids = [r.piece_id for r in results]
         selected = st.selectbox("Piece", piece_ids)
         chosen = next(r for r in results if r.piece_id == selected)
+        st.caption(
+            f"Assigned coiler: {chosen.coiler_id or 'none'} "
+            f"(pin at {chosen.x_coiler:.1f} m)."
+            if chosen.x_coiler is not None
+            else "No coiler in the layout."
+        )
         st.dataframe(
             [
                 {
@@ -313,6 +331,27 @@ def main() -> None:
         )
 
     with tabs[5]:
+        st.subheader("Piece assignment")
+        st.dataframe(
+            [
+                {
+                    "piece": r.piece_id,
+                    "product": r.product_id,
+                    "coiler": r.coiler_id or "-",
+                    "x coiler [m]": round(r.x_coiler, 1) if r.x_coiler is not None else None,
+                }
+                for r in results
+            ],
+            width="stretch",
+            hide_index=True,
+        )
+        st.caption(
+            "The zoom trigger is the virtual travel past the last stand, the TRoll "
+            "convention: it does not change with the assigned coiler. Pinning and "
+            "the tail slowdown do. Reversing clearance is the stop position; v* is "
+            "the tail-out speed the model derived to hit it."
+        )
+
         st.subheader("Mass balance")
         st.dataframe(
             [
