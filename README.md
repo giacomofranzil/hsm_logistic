@@ -98,19 +98,25 @@ Other conventions worth knowing:
   `v* = sqrt(2 a_table C)` that lets the table finish the stop; if the pass is faster, the mill
   decelerates as late as possible at the stand acceleration while the tail is still gripped. `v*`
   is written on the `reverse_slowdown` and `tail_out` events, not back into `v_exit_mps`. Leaving
-  the cell empty keeps the shortest stop after tail-out, at `v^2/(2a)`.
+  the cell empty keeps the shortest stop after tail-out, at `v^2/(2a)`. If even starting from the
+  bite is not enough, the tool reports the clearance actually achieved rather than faking an
+  impossible braking.
 * **Zoom rolling**: keeps the opposite convention on purpose, the one of the offline model TRoll, so its
   trigger is where the acceleration **starts**. It uses the **virtual head**, that is it ignores the
   fact that the head stops at the coiler: if it falls beyond the coiler the zoom starts after a few
-  wraps. The trigger is the same virtual travel for every assigned coiler; pinning and the tail
-  slowdown use that mandrel, the zoom ramp does not.
+  wraps. The trigger is the virtual travel past the stand, **the same for every assigned coiler**:
+  TRoll does not treat the downcoilers, so the number is not recomputed as table plus wraps on that
+  mandrel. Pinning and the tail slowdown use the assigned coiler; the zoom ramp does not.
 * **Arrival at the coiler**: the slowdown starts as late as possible so that the tail reaches the
   coiler at `coiler_v_final_mps`, using the acceleration on the coiler row, including while the
-  finishing mill is still rolling. The constraint is on the tail; the command is on the lead, scaled
-  by the remaining elongation chain.
-* **Several coilers**: up to three in-line downcoilers. `coiler_pattern` on the Simulation sheet is a
-  repeating cycle of their ids (`DC1,DC2,DC3`). A piece for a downstream coiler does not stop at the
-  one upstream.
+  finishing mill is still rolling. The constraint is on the tail; the command is on the leading
+  extremity, scaled by the remaining elongation chain. If even that is not enough, the tool reports
+  the speed the tail actually arrives at.
+* **Several coilers**: up to three in-line downcoilers, each at its own `x`. `coiler_pattern` on the
+  Simulation sheet is a repeating cycle of their ids, the same idea as `piece_products`
+  (`DC1,DC2` alternates; `DC1,DC2,DC3` is a round robin). With two or three coilers the pattern is
+  required and must name at least two of them. A piece assigned to a downstream coiler does not stop
+  at the one upstream. Do not put the coiler on the product row: the same product often alternates.
 * **Coiler**: on gripping, the physical head is pinned and the length on the line decreases, while the
   virtual head carries on.
 * **Origin of the axis**: at release the head sits at the furnace exit and the tail one slab length

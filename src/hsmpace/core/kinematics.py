@@ -159,6 +159,9 @@ class Trajectory:
         t = min(max(t, seg.t0), seg.t1)
         return seg.v_at(t)
 
+    def a_at(self, t: float) -> float:
+        return self._find(t).a
+
     def shift(self, dt: float) -> "Trajectory":
         return Trajectory(
             [Segment(s.t0 + dt, s.t1 + dt, s.x0, s.v0, s.a) for s in self.segments]

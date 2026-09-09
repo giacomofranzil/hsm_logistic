@@ -165,10 +165,17 @@ def test_different_products_in_the_same_sequence(case):
     mixed, _ = harmonise_tandem_speeds(mixed)
     base_mixed = base_results(mixed)
     assert {k[0] for k in base_mixed} == {"P1", "P2"}
+    assert {k[1] for k in base_mixed} >= {"DC1", "DC2"}
 
     results = sequence(mixed, base_mixed, 150.0)
     assert [r.product_id for r in results] == ["P1", "P2", "P1"]
     assert results[1].t_end != results[0].t_end + 150.0
+
+
+def test_the_pacing_scan_starts_at_seventy_seconds(case):
+    assert case.settings.pacing_scan_min == pytest.approx(70.0)
+    curve = gap_vs_pacing(case)
+    assert curve[0].pacing == pytest.approx(70.0)
 
 
 def test_direct_simulation_and_time_shift_agree(case):

@@ -73,7 +73,8 @@ accel = ramp_accel            if a ramp declaring its own acceleration is under 
 ```
 
 Acceleration is therefore read from the layout only on stand rows, where it governs the piece while it
-is gripped, and on the coiler row, where it governs the final slowdown.
+is gripped, and on the coiler row, where it governs the final slowdown (as `ramp_accel = a_c * lam`,
+including while the mill is still rolling).
 
 The `lambda` of a pass is `(h_in * w_in) / (h_out * w_out)`. Length grows by itself, because the
 extremity downstream of every engaged stand is faster than the upstream one; it must not be imposed.
@@ -131,7 +132,9 @@ accel   = acceleration of the stand
 
 If the pass defines a zoom, a relative speed event is registered with trigger at
 `x_stand + zoom_trigger`, forward direction, valid while rolling as well. That offset is
-independent of which coiler takes the strip.
+**independent of which coiler takes the strip**. TRoll does not treat the downcoilers, so the same
+virtual travel is used for every assigned mandrel: it is not recomputed as table plus wraps. Pinning
+and the tail slowdown use that mandrel; the zoom trigger does not.
 
 **Tail-out** of pass `p`:
 
@@ -212,7 +215,7 @@ back into the rolling zone while the target position is already in free running,
 during the pass and the fact is reported.
 
 Zoom rolling is deliberately excluded from this rule: its trigger is the point where the acceleration
-starts, following the convention of the offline model.
+starts, following the convention of the offline model TRoll.
 
 ### Final slowdown towards the coiler
 
@@ -226,7 +229,7 @@ stand the tail will speed up by that pass's lambda, so the speed required just b
 the speed required just after it, divided by lambda. Between stands the tail is held at deceleration
 `a_c`. The walk yields a waypoint `(x_wp, v_wp)`: the first remaining stand at the tail speed it
 must have there, or the coiler itself at `v_final` when nothing is left engaged. Targeted braking
-is then applied to the tail toward that waypoint.
+is then applied to the tail toward that waypoint, exactly as for a reversal.
 
 When braking starts the command is put on the leading extremity:
 
@@ -237,16 +240,24 @@ zoom_factor     = 1
 ```
 
 so the tail decelerates at `a_c` toward `coiler_v_final`. At every later tail-out `lam` falls and
-the same assignment is repeated. Section events are ignored once this slowdown has started; zoom on
-the virtual head is not.
+the same assignment is repeated: the commanded rate steps down, the tail deceleration stays
+constant. Section events are ignored once this slowdown has started. Zoom is not: it is commanded on
+the virtual head at `x_stand + zoom_trigger`, the same position whichever mandrel is assigned, so it
+must not be suppressed just because the nearer coiler started braking earlier.
+
+### Several coilers
+
+The layout may list up to three coilers, in line, each at its own `x`. Assignment is a repeating
+cycle `coiler_pattern` of their ids (empty only when a single coiler is present). Piece `i` takes
+`pattern[i mod length]`. A piece assigned to a downstream coiler does not stop at the one upstream:
+the physical head is pinned at the assigned mandrel only. Gap remains one-dimensional on the whole
+table.
+
+In open-loop mode the cache key is `(product, assigned coiler)`, not the product alone.
 
 If the tail has already passed the latest start, braking begins at once. The speed it would then
 have at the mandrel, including the jumps at the remaining tail-outs, is reported when it exceeds
 `coiler_v_final`.
-
-The layout may list up to three coilers in line. Assignment is the repeating cycle `coiler_pattern`.
-A piece assigned to a downstream coiler does not stop at the one upstream. In open-loop mode the
-cache key is `(product, assigned coiler)`.
 
 **Reversal wait**: two zero velocity segments are emitted for the duration of the `reversing_delay`,
 then `direction` is flipped, the approach speed of the next pass is assigned together with the

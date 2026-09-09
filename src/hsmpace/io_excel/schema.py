@@ -26,8 +26,9 @@ LAYOUT_COLUMNS = [
     (
         "accel_mps2",
         "Acceleration = deceleration, m/s2. Read only on stand rows, where it applies "
-        "while the piece is gripped, and on the coiler row, where it sets the final "
-        "slowdown. Ignored on start and marker rows",
+        "while the piece is gripped, and on the coiler row, where it is the "
+        "deceleration of the tail down to the final speed, including while the "
+        "finishing mill is still rolling. Ignored on start and marker rows",
     ),
     ("group", "Tandem group, for example FM for the finishing stands"),
     ("label", "Description shown on the charts"),
@@ -307,7 +308,8 @@ GUIDE_TEXT = [
         "The layout may list up to three coilers, in line, each at its own x. "
         "coiler_pattern on the Simulation sheet is a repeating cycle of their ids, "
         "the same idea as piece_products: DC1,DC2 alternates; DC1,DC2,DC3 is a "
-        "round robin. Piece 1 takes the first id, piece 2 the second, then it wraps. "
+        "round robin; DC1,DC2,DC1,DC3 is a longer cadence. Piece 1 takes the first "
+        "id, piece 2 the second, then it wraps. "
         "With two or three coilers the pattern is required and must name at least two "
         "of them. If every piece goes to one mandrel, or if you use only two of three, "
         "remove the unused rows from the Layout rather than leaving them idle. A piece "

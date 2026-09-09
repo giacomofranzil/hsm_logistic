@@ -23,7 +23,12 @@ from hsmpace.core.model import (
     harmonise_tandem_speeds,
     validate_case,
 )
-from hsmpace.core.simulate import simulate_case, simulate_piece
+from hsmpace.core.simulate import (
+    coiler_tail_waypoint,
+    simulate_case,
+    simulate_piece,
+    tail_arrival_speed,
+)
 from hsmpace.core.studies import base_results
 
 
@@ -346,6 +351,84 @@ def test_a_reverse_first_pass_is_rejected():
     assert any("first pass" in p for p in problems)
 
 
+def test_coiler_waypoint_walks_backward_through_the_remaining_stands():
+    """The tail speeds up at each tail-out, so the last-possible start is earlier."""
+    f1 = _pass(1, "F1", FWD, 100.0, 50.0, 4.0)
+    f2 = _pass(2, "F2", FWD, 50.0, 25.0, 8.0)
+    engaged = [(f1, 50.0, 0.0), (f2, 60.0, 0.0)]
+
+    x_wp, v_wp = coiler_tail_waypoint(30.0, 80.0, 1.0, 1.0, engaged)
+    assert x_wp == pytest.approx(50.0)
+    assert v_wp == pytest.approx(2.75)
+
+    x_wp, v_wp = coiler_tail_waypoint(50.0, 80.0, 1.0, 1.0, [(f2, 60.0, 0.0)])
+    assert x_wp == pytest.approx(60.0)
+    assert v_wp == pytest.approx(41.0 ** 0.5 / 2.0)
+
+    x_wp, v_wp = coiler_tail_waypoint(60.0, 80.0, 1.0, 1.0, [])
+    assert x_wp == pytest.approx(80.0)
+    assert v_wp == pytest.approx(1.0)
+
+    # latest start after F1 tail-out: 4 m/s at 57.125 m lands on 1 m/s at the mandrel
+    assert tail_arrival_speed(57.125, 4.0, 80.0, 1.0, [(f2, 60.0, 0.0)]) == pytest.approx(
+        1.0, abs=1e-6
+    )
+    # waiting until the piece is free is too late: 8 m/s over 20 m at 1 m/s2
+    assert tail_arrival_speed(60.0, 8.0, 80.0, 1.0, []) == pytest.approx(24.0 ** 0.5)
+
+
+def test_the_finishing_mill_slows_down_while_the_tail_is_still_engaged():
+    """Short run-out: braking after the last tail-out cannot reach 1 m/s."""
+    line = _line([("F1", 50.0), ("F2", 60.0)], coiler_x=80.0)
+    case = _case(
+        line,
+        [
+            _pass(1, "F1", FWD, 100.0, 50.0, 4.0),
+            _pass(2, "F2", FWD, 50.0, 25.0, 8.0),
+        ],
+    )
+    res = simulate_piece(case, case.products[0])
+
+    slowdown = next(e for e in res.events if e.kind == "coiler_slowdown")
+    last_tail_out = max(e.t for e in res.events if e.kind == "tail_out")
+    assert slowdown.t < last_tail_out
+    assert "mill still rolling" in slowdown.detail
+    assert res.tail.v_at(res.t_end) == pytest.approx(1.0, abs=1e-6)
+    assert res.warnings == ()
+
+    # while F2 is still engaged the tail decelerates at the coiler rate and the
+    # lead at that rate times the remaining lambda
+    t_mid = 0.5 * (slowdown.t + last_tail_out)
+    assert res.tail.a_at(t_mid) == pytest.approx(-1.0, abs=1e-6)
+    assert res.head_virtual.a_at(t_mid) == pytest.approx(-2.0, abs=1e-6)
+    assert res.head_virtual.v_at(t_mid) / res.tail.v_at(t_mid) == pytest.approx(2.0, rel=1e-6)
+
+    # after the last tail-out the body is rigid: both decelerate at the coiler rate
+    t_free = last_tail_out + 0.05
+    if t_free < res.t_end:
+        assert res.head_virtual.v_at(t_free) == pytest.approx(res.tail.v_at(t_free), abs=1e-6)
+        assert res.head_virtual.a_at(t_free) == pytest.approx(-1.0, abs=1e-6)
+
+
+def test_an_impossible_coiler_slowdown_is_reported_even_with_the_mill():
+    """At 0.05 m/s2 the latest start is already behind the tail at the last bite."""
+    line = _line([("F1", 50.0), ("F2", 60.0)], coiler_x=68.0)
+    equipment = tuple(
+        replace(eq, accel=0.05) if eq.id == "DC" else eq for eq in line.equipment
+    )
+    line = Line(equipment, line.sections)
+    case = _case(
+        line,
+        [
+            _pass(1, "F1", FWD, 100.0, 50.0, 4.0),
+            _pass(2, "F2", FWD, 50.0, 25.0, 8.0),
+        ],
+    )
+    res = simulate_piece(case, case.products[0])
+    assert any("cannot slow down" in w and "mill is still rolling" in w for w in res.warnings)
+    assert res.tail.v_at(res.t_end) > 1.0
+
+
 def test_a_reverse_last_pass_is_rejected():
     """Closing backwards, the piece would never reach the coiler."""
     line = _line([("R", 50.0)])
@@ -360,27 +443,13 @@ def test_a_reverse_last_pass_is_rejected():
     assert any("last pass" in p for p in problems)
 
 
-def test_the_coiler_slowdown_starts_while_the_mill_is_still_rolling():
-    """Short run-out: the tandem must brake before the last tail-out."""
-    line = _line([("F1", 50.0), ("F2", 60.0)], coiler_x=80.0)
-    case = _case(
-        line,
-        [
-            _pass(1, "F1", FWD, 100.0, 50.0, 4.0),
-            _pass(2, "F2", FWD, 50.0, 25.0, 8.0),
-        ],
-    )
-    res = simulate_piece(case, case.products[0])
-    last_tail = max(e.t for e in res.events if e.kind == "tail_out")
-    slow = next(e for e in res.events if e.kind == "coiler_slowdown")
-    assert slow.t < last_tail
-    assert res.tail.v_at(res.t_end) == pytest.approx(1.0, abs=1e-3)
 
 
 def _two_coilers(
     stands: list[tuple[str, float]],
     dc1: float = 200.0,
     dc2: float = 230.0,
+    v_start: float = 2.0,
     extra: list[Equipment] | None = None,
 ) -> Line:
     equipment = [Equipment("ST", "start", 0.0, accel=1.0)]
@@ -394,7 +463,7 @@ def _two_coilers(
         "S1",
         x_start=0.0,
         length=x_end,
-        events=(SpeedEvent("S1-1", "S1", x_trigger=0.0, v_target=2.0, direction=FWD),),
+        events=(SpeedEvent("S1-1", "S1", x_trigger=0.0, v_target=v_start, direction=FWD),),
     )
     return Line(tuple(equipment), (section,))
 
@@ -413,39 +482,50 @@ def test_alternate_coilers_pin_at_their_own_position():
     assert max(s.x1 for s in results[1].head.segments) <= 230.0 + 1e-6
 
 
+
+
+def test_a_long_coiler_pattern_is_cycled():
+    extra = [Equipment("DC3", "coiler", 260.0, accel=1.0)]
+    case = replace(
+        _case(
+            _two_coilers([("R", 50.0)], extra=extra),
+            [_pass(1, "R", FWD, 100.0, 50.0, 4.0)],
+        ),
+        settings=SimSettings(n_pieces=8, coiler_pattern=("DC1", "DC2", "DC1", "DC3")),
+    )
+    assert case.piece_coiler_ids == ("DC1", "DC2", "DC1", "DC3") * 2
+    results = simulate_case(case)
+    assert [r.coiler_id for r in results] == list(case.piece_coiler_ids)
+    assert results[3].x_coiler == pytest.approx(260.0)
+
+
 def test_two_coilers_without_a_pattern_are_rejected():
     case = _case(_two_coilers([("R", 50.0)]), [_pass(1, "R", FWD, 100.0, 50.0, 4.0)])
     messages = [p.message for p in validate_case(case) if not p.is_warning]
     assert any("coiler_pattern is required" in m for m in messages)
 
 
-def test_the_cache_does_not_mix_coilers():
+def test_a_pattern_with_one_distinct_id_is_rejected():
     case = replace(
         _case(_two_coilers([("R", 50.0)]), [_pass(1, "R", FWD, 100.0, 50.0, 4.0)]),
-        settings=SimSettings(n_pieces=4, coiler_pattern=("DC1", "DC2")),
+        settings=SimSettings(n_pieces=2, coiler_pattern=("DC1", "DC1")),
     )
-    base = base_results(case)
-    assert ("P", "DC1") in base and ("P", "DC2") in base
-    assert base[("P", "DC1")].x_coiler == pytest.approx(200.0)
-    assert base[("P", "DC2")].x_coiler == pytest.approx(230.0)
+    messages = [p.message for p in validate_case(case) if not p.is_warning]
+    assert any("at least two distinct" in m for m in messages)
 
 
-def test_zoom_trigger_is_the_same_on_both_coilers():
-    line = _two_coilers([("R", 50.0)], dc1=120.0, dc2=180.0)
+def test_an_unused_coiler_is_a_warning():
+    extra = [Equipment("DC3", "coiler", 260.0, accel=1.0)]
     case = replace(
         _case(
-            line,
-            [_pass(1, "R", FWD, 100.0, 50.0, 4.0, zoom_pct=10.0, zoom_trigger=80.0)],
-            slab_len=40.0,
+            _two_coilers([("R", 50.0)], extra=extra),
+            [_pass(1, "R", FWD, 100.0, 50.0, 4.0)],
         ),
         settings=SimSettings(n_pieces=2, coiler_pattern=("DC1", "DC2")),
     )
-    near = simulate_piece(case, case.products[0], coiler=case.line.get("DC1"))
-    far = simulate_piece(case, case.products[0], coiler=case.line.get("DC2"))
-    zoom_near = next(e for e in near.events if e.kind == "zoom")
-    zoom_far = next(e for e in far.events if e.kind == "zoom")
-    assert zoom_near.x == pytest.approx(130.0)
-    assert zoom_far.x == pytest.approx(zoom_near.x)
+    warnings = [p.message for p in validate_case(case) if p.is_warning]
+    assert any("DC3" in m and "not in coiler_pattern" in m for m in warnings)
+    assert not [p for p in validate_case(case) if not p.is_warning]
 
 
 def test_more_than_three_coilers_are_rejected():
@@ -462,3 +542,38 @@ def test_more_than_three_coilers_are_rejected():
     )
     messages = [p.message for p in validate_case(case) if not p.is_warning]
     assert any(f"at most {MAX_COILERS} coilers" in m for m in messages)
+
+
+def test_the_cache_does_not_mix_coilers():
+    case = replace(
+        _case(_two_coilers([("R", 50.0)]), [_pass(1, "R", FWD, 100.0, 50.0, 4.0)]),
+        settings=SimSettings(n_pieces=4, coiler_pattern=("DC1", "DC2")),
+    )
+    base = base_results(case)
+    assert ("P", "DC1") in base and ("P", "DC2") in base
+    assert base[("P", "DC1")].x_coiler == pytest.approx(200.0)
+    assert base[("P", "DC2")].x_coiler == pytest.approx(230.0)
+
+
+def test_zoom_trigger_is_the_same_on_both_coilers():
+    """TRoll ignores the downcoilers: virtual travel from the stand, not table plus wraps."""
+    line = _two_coilers([("R", 50.0)], dc1=120.0, dc2=180.0)
+    case = replace(
+        _case(
+            line,
+            [_pass(1, "R", FWD, 100.0, 50.0, 4.0, zoom_pct=10.0, zoom_trigger=80.0)],
+            slab_len=40.0,
+        ),
+        settings=SimSettings(n_pieces=2, coiler_pattern=("DC1", "DC2")),
+    )
+    dc1 = case.line.get("DC1")
+    dc2 = case.line.get("DC2")
+    near = simulate_piece(case, case.products[0], coiler=dc1)
+    far = simulate_piece(case, case.products[0], coiler=dc2)
+    zoom_near = next(e for e in near.events if e.kind == "zoom")
+    zoom_far = next(e for e in far.events if e.kind == "zoom")
+    assert zoom_near.x == pytest.approx(130.0)
+    assert zoom_far.x == pytest.approx(zoom_near.x)
+    assert near.x_coiler == pytest.approx(120.0)
+    assert far.x_coiler == pytest.approx(180.0)
+    assert far.head.x_at(far.t_end) > near.x_coiler + 1e-3

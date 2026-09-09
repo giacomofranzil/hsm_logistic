@@ -28,9 +28,11 @@ is the point where the target is met, not where the ramp begins.
 
 A reversing clearance is that stop position. The model derives the tail-out
 speed that makes it, slowing the mill while the tail is still gripped if the
-table alone cannot stop in time. The coiler slowdown is planned on the tail
-and commanded on the lead; it starts as late as possible, including while the
-finishing mill is still rolling.
+table alone cannot stop in time. The coiler slowdown is planned on the **tail**
+and commanded on the leading extremity. It starts as late as possible, including
+while the finishing mill is still rolling: the tail is held at the coiler
+deceleration and the lead is driven at that rate times the remaining elongation
+chain, so that the tail meets ``coiler_v_final`` at the mandrel.
 """
 
 from __future__ import annotations
@@ -75,7 +77,7 @@ class PieceResult:
     ``head`` and ``tail`` are the **physical** trajectories, with the head
     pinned at the coiler. ``head_virtual`` is the unconstrained head, which
     keeps advancing beyond the coiler: that is the one driving the zoom rolling
-    trigger, following the convention of the offline model.
+    trigger, following the convention of the offline model TRoll.
     """
 
     piece_id: str
@@ -129,38 +131,36 @@ def reversal_tailout_speed(clearance: float, table_accel: float) -> float | None
 
 
 def _stands_ahead_of_tail(
-    x_tail: float, engaged: list[tuple[RollingPass, float, float]]
-) -> list[tuple[RollingPass, float]]:
-    return sorted(
-        [(rp, x) for rp, x, _t in engaged if x > x_tail + _X_EPS],
-        key=lambda item: item[1],
-    )
+    x_tail: float,
+    engaged: list[tuple[RollingPass, float, float]],
+) -> list[tuple[float, float]]:
+    """Remaining stands the tail still has to clear, upstream to downstream."""
+    stands = [(x, rp.elongation) for rp, x, _ in engaged if x > x_tail + _X_EPS]
+    stands.sort(key=lambda item: item[0])
+    return stands
 
 
 def coiler_tail_waypoint(
     x_tail: float,
     x_coiler: float,
     v_final: float,
-    a_c: float,
+    accel: float,
     engaged: list[tuple[RollingPass, float, float]],
 ) -> tuple[float, float]:
-    """Nearest (x, v) the tail must meet so it still arrives at ``v_final``.
+    """Next tail target so that, after the remaining tail-outs, it meets ``v_final``.
 
-    Remaining stands are walked backward from the mandrel. At each tail-out the
-    tail speeds up by that pass's lambda, so the speed required just before the
-    stand is the speed required just after it, divided by lambda. Between
-    stands the tail is held at deceleration ``a_c``.
+    Walks backward from the mandrel. At each stand the tail speeds up by that
+    pass's lambda, so the speed required just before tail-out is the speed
+    required just after it, divided by lambda. Between stands the tail is held
+    at deceleration ``accel``. With no stand left the waypoint is the coiler
+    itself at ``v_final``.
     """
-    remaining = sorted(
-        [(rp, x) for rp, x, _t in engaged if x > x_tail + _X_EPS],
-        key=lambda item: -item[1],
-    )
     x_wp = x_coiler
-    v_wp = v_final
-    for rp, x_stand in remaining:
+    v_wp = max(v_final, 0.0)
+    for x_stand, lam_i in reversed(_stands_ahead_of_tail(x_tail, engaged)):
         gap = max(x_wp - x_stand, 0.0)
-        v_after = math.sqrt(max(v_wp * v_wp + 2.0 * a_c * gap, 0.0))
-        v_wp = v_after / rp.elongation
+        v_after = (v_wp * v_wp + 2.0 * accel * gap) ** 0.5 if accel > 0.0 else v_wp
+        v_wp = v_after / lam_i if lam_i > 0.0 else v_after
         x_wp = x_stand
     return x_wp, v_wp
 
@@ -169,20 +169,25 @@ def tail_arrival_speed(
     x_tail: float,
     v_tail: float,
     x_coiler: float,
-    a_c: float,
+    accel: float,
     engaged: list[tuple[RollingPass, float, float]],
 ) -> float:
-    """Speed the tail would have at the mandrel braking at ``a_c`` from here."""
+    """Speed the tail would have at the coiler if it decelerated at ``accel`` now.
+
+    Includes the jump at every remaining tail-out: the tail speeds up by the
+    pass lambda when that stand releases it, then keeps decelerating.
+    """
     x = x_tail
     v = max(v_tail, 0.0)
-    for rp, x_stand in _stands_ahead_of_tail(x_tail, engaged):
+    for x_stand, lam_i in _stands_ahead_of_tail(x_tail, engaged):
         gap = max(x_stand - x, 0.0)
-        v2 = v * v - 2.0 * a_c * gap
-        v = math.sqrt(max(v2, 0.0)) * rp.elongation
+        v2 = v * v - 2.0 * accel * gap
+        v = v2 ** 0.5 if v2 > 0.0 else 0.0
+        v *= lam_i
         x = x_stand
     gap = max(x_coiler - x, 0.0)
-    v2 = v * v - 2.0 * a_c * gap
-    return math.sqrt(max(v2, 0.0))
+    v2 = v * v - 2.0 * accel * gap
+    return v2 ** 0.5 if v2 > 0.0 else 0.0
 
 
 def _ramp_start_time(
@@ -291,8 +296,9 @@ def simulate_piece(
     def apply_coiler_command() -> None:
         nonlocal coiler_braking, ramp_accel, zoom_factor, nominal_target
         coiler_braking = True
-        ramp_accel = coiler.accel * lam  # type: ignore[union-attr]
         zoom_factor = 1.0
+        a_c = coiler.accel if coiler is not None else settings.table_accel
+        ramp_accel = a_c * lam
         nominal_target = settings.coiler_v_final * lam
 
     def pending_reversal() -> RollingPass | None:
@@ -304,6 +310,18 @@ def simulate_piece(
         if not any(rp.pass_no == current.pass_no for rp, _x, _t in engaged):
             return None
         return current
+
+    def emit_coiler_slowdown() -> None:
+        still = "mill still rolling" if engaged else "piece free of the mill"
+        events.append(
+            SimEvent(
+                t,
+                "coiler_slowdown",
+                coiler.id if coiler is not None else "",
+                x_tail,
+                f"target {settings.coiler_v_final:.1f} m/s at the mandrel, {still}",
+            )
+        )
 
     while not done:
         iterations += 1
@@ -431,50 +449,44 @@ def simulate_piece(
             if t_hit is not None:
                 candidates.append((t_hit, "brake", None))
 
-        # deceleration towards the coiler, including while the mill is still rolling
+        # deceleration towards the coiler: planned on the tail, commanded on the
+        # lead. Starts as late as possible, including while the mill is still
+        # rolling, so the tail meets coiler_v_final at the mandrel.
         if (
             x_coiler is not None
             and coiler is not None
+            and next_idx >= len(passes)
             and not coiler_braking
             and not reversing
             and not reverse_slowing
             and direction == FWD
-            and next_idx >= len(passes)
         ):
-            trail_speed = abs(trail_v)
             x_wp, v_wp = coiler_tail_waypoint(
                 trail_x, x_coiler, settings.coiler_v_final, coiler.accel, engaged
             )
-            if trail_speed > v_wp + _V_EPS:
-                d_brake = braking_distance(trail_speed, v_wp, coiler.accel)
+            if trail_v > v_wp + _V_EPS:
+                d_brake = braking_distance(trail_v, v_wp, coiler.accel)
                 x_brake = x_wp - d_brake
                 if trail_x >= x_brake - 1e-9:
-                    if trail_x > x_brake + _X_EPS:
-                        reachable = tail_arrival_speed(
-                            trail_x, trail_speed, x_coiler, coiler.accel, engaged
-                        )
-                        if reachable > settings.coiler_v_final + 0.05:
-                            where = (
-                                "mill is still rolling"
-                                if engaged
-                                else "run-out table"
-                            )
-                            warnings.append(
-                                f"coiler: the tail cannot slow down to "
-                                f"{settings.coiler_v_final:.1f} m/s "
-                                f"({where}). At {coiler.accel:.2f} m/s2 it arrives at "
-                                f"{reachable:.1f} m/s."
-                            )
-                    apply_coiler_command()
-                    events.append(
-                        SimEvent(
-                            t,
-                            "coiler_slowdown",
-                            coiler.id,
-                            trail_x,
-                            f"target {settings.coiler_v_final:.1f} m/s at the mandrel",
-                        )
+                    arrival = tail_arrival_speed(
+                        trail_x, trail_v, x_coiler, coiler.accel, engaged
                     )
+                    if arrival > settings.coiler_v_final + 1e-3:
+                        where = (
+                            "while the mill is still rolling"
+                            if engaged
+                            else "within the run-out table"
+                        )
+                        warnings.append(
+                            f"coiler: the tail cannot slow down to "
+                            f"{settings.coiler_v_final:.1f} m/s {where}. "
+                            f"At {coiler.accel:.2f} m/s2 it arrives at {arrival:.1f} m/s; "
+                            f"{braking_distance(trail_v, v_wp, coiler.accel):.0f} m "
+                            f"would be needed against the {x_wp - trail_x:.0f} m "
+                            f"left to the next target."
+                        )
+                    apply_coiler_command()
+                    emit_coiler_slowdown()
                     continue
                 t_hit = solve_crossing(
                     t, trail_x, trail_v, trail_a, x_brake, t, horizon, FWD
@@ -485,7 +497,7 @@ def simulate_piece(
         # speed events: the target must be met AT the requested position, so the
         # ramp is anticipated. Only the nearest event ahead is armed.
         # zoom rolling keeps the opposite convention on purpose: its trigger is the
-        # position where the acceleration STARTS, as in the offline model
+        # position where the acceleration STARTS, as in the offline model TRoll
         pending = _next_event(active_events, lead_x, direction, armed_id)
         if pending is not None and pending.rel_pct:
             pending = None
@@ -614,15 +626,7 @@ def simulate_piece(
 
         if action == "coiler_brake":
             apply_coiler_command()
-            events.append(
-                SimEvent(
-                    t,
-                    "coiler_slowdown",
-                    coiler.id,  # type: ignore[union-attr]
-                    x_tail,
-                    f"target {settings.coiler_v_final:.1f} m/s at the mandrel",
-                )
-            )
+            emit_coiler_slowdown()
             continue
 
         if action == "arm":
