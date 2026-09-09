@@ -11,7 +11,8 @@ from __future__ import annotations
 import plotly.graph_objects as go
 
 from ..core.analysis import GapAnalysis
-from ..core.model import KIND_COILER, KIND_STAND, Case
+from ..core.kinematics import interpolated_polyline
+from ..core.model import KIND_COILER, KIND_COILBOX, KIND_STAND, Case
 from ..core.simulate import PieceResult
 from ..core.studies import MonteCarloResult, PacingPoint
 from ..core.tracking import TrackingSeries
@@ -50,6 +51,9 @@ def _layout(fig: go.Figure, title: str, height: int = 640, top: int = 70) -> go.
     return fig
 
 
+TRACE_POINT_CHOICES = [2, *range(3, 22, 2)]
+
+
 def space_time_figure(
     case: Case,
     results: list[PieceResult],
@@ -57,6 +61,7 @@ def space_time_figure(
     time_down: bool | None = None,
     tracking: list[TrackingSeries] | None = None,
     show_virtual_head: bool = False,
+    n_points: int = 2,
 ) -> go.Figure:
     time_down = case.settings.time_axis_down if time_down is None else time_down
     fig = go.Figure()
@@ -104,6 +109,27 @@ def space_time_figure(
                 + "</extra>",
             )
         )
+        if n_points > 2:
+            inner = n_points - 2
+            for k in range(1, inner + 1):
+                frac = k / (n_points - 1)
+                t_m, x_m = interpolated_polyline(res.head, res.tail, frac)
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_m,
+                        y=t_m,
+                        mode="lines",
+                        line=dict(color=color, width=1),
+                        opacity=0.45,
+                        name=f"{res.piece_id} {k}/{n_points - 1}",
+                        legendgroup=res.piece_id,
+                        showlegend=False,
+                        hovertemplate=(
+                            f"point {k}/{n_points - 1} %{{x:.1f}} m<br>t %{{y:.1f}} s"
+                            f"<extra>{res.piece_id}</extra>"
+                        ),
+                    )
+                )
         if show_virtual_head:
             t_v, x_v = res.head_virtual.polyline()
             fig.add_trace(
@@ -152,7 +178,7 @@ def space_time_figure(
         tiers[eq.id] = level
 
     for eq in case.line.equipment:
-        is_stand = eq.kind in (KIND_STAND, KIND_COILER)
+        is_stand = eq.kind in (KIND_STAND, KIND_COILER, KIND_COILBOX)
         fig.add_shape(
             type="line",
             x0=eq.x,
@@ -324,12 +350,17 @@ def pacing_curve_figure(
 
 def gantt_figure(case: Case, results: list[PieceResult]) -> go.Figure:
     fig = go.Figure()
-    order = [e.id for e in sorted(case.line.equipment, key=lambda e: -e.x) if e.kind == KIND_STAND]
+    occupied = {o.equipment_id for res in results for o in res.occupancy}
+    order = [
+        e.id
+        for e in sorted(case.line.equipment, key=lambda e: -e.x)
+        if e.id in occupied
+    ]
     labels = {e.id: e.display for e in case.line.equipment}
 
     for i, res in enumerate(results):
         color = PALETTE[i % len(PALETTE)]
-        occ = [o for o in res.occupancy if o.equipment_id in order]
+        occ = [o for o in res.occupancy if o.equipment_id in occupied]
         fig.add_trace(
             go.Bar(
                 x=[o.duration for o in occ],
@@ -346,7 +377,7 @@ def gantt_figure(case: Case, results: list[PieceResult]) -> go.Figure:
             )
         )
 
-    _layout(fig, "Stand occupancy", height=420)
+    _layout(fig, "Occupancy", height=max(420, 28 * max(len(order), 1) + 160))
     fig.update_layout(barmode="overlay", bargap=0.35)
     fig.update_xaxes(title="Time [s]")
     fig.update_yaxes(

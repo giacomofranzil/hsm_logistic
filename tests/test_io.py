@@ -45,6 +45,9 @@ def test_the_empty_template_has_the_sheets_and_headers(tmp_path):
     assert "as late as possible" in guide
     assert "coiler_pattern" in guide
     assert "Several coilers" in guide
+    assert "coilbox" in guide
+    assert "occupy" in guide
+    assert "relative change" in guide
 
 
 def test_json_round_trip_preserves_the_case():
@@ -206,6 +209,23 @@ def test_the_json_report_carries_segments_and_outcomes():
         report["pieces"][0]["length_geometric_m"], rel=1e-6
     )
     assert report["gaps"][0]["ok"] is True
+
+
+def test_an_older_workbook_without_occupy_columns_still_loads(tmp_path):
+    path = write_case(example_case(), tmp_path / "no_occupy.xlsx")
+    wb = load_workbook(path)
+    ws = wb["Layout"]
+    header = [c.value for c in ws[1]]
+    for name in ("occupy_after_m", "occupy_before_m", "occupy"):
+        ws.delete_cols(header.index(name) + 1)
+        header = [c.value for c in ws[1]]
+    wb.save(path)
+
+    loaded = read_case(path)
+    ds1 = loaded.line.get("DS1")
+    assert ds1.occupy is None
+    assert ds1.occupy_before == 0.0
+    assert not ds1.occupies
 
 
 def test_tracking_csv_import():

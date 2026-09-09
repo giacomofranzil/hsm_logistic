@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import math
 
+import pytest
+
 from hsmpace.core.kinematics import (
     QuadPiece,
     Segment,
     Trajectory,
+    interpolated_polyline,
+    overlap_intervals,
     solve_crossing,
     subtract,
 )
@@ -94,3 +98,35 @@ def test_shift_moves_time_only():
     moved = traj.shift(100.0)
     assert moved.t_start == 100.0
     assert moved.x_at(102.0) == traj.x_at(2.0)
+
+
+def test_overlap_intervals_finds_two_visits_on_a_reversing_bar():
+    # head 0→100 then 100→0; tail 20 m behind. Device at x=40, width 0.
+    head = Trajectory(
+        [Segment(0.0, 10.0, 0.0, 10.0, 0.0), Segment(10.0, 20.0, 100.0, -10.0, 0.0)]
+    )
+    tail = Trajectory(
+        [Segment(0.0, 10.0, -20.0, 10.0, 0.0), Segment(10.0, 20.0, 80.0, -10.0, 0.0)]
+    )
+    spans = overlap_intervals(head, tail, 40.0, 40.0)
+    assert len(spans) == 2
+    assert spans[0][0] == pytest.approx(4.0)
+    assert spans[0][1] == pytest.approx(6.0)
+    assert spans[1][0] == pytest.approx(14.0)
+    assert spans[1][1] == pytest.approx(16.0)
+
+
+def test_interpolated_polyline_is_the_geometric_fraction():
+    head = Trajectory([Segment(0.0, 10.0, 20.0, 2.0, 0.0)])
+    tail = Trajectory([Segment(0.0, 10.0, 0.0, 1.0, 0.0)])
+    t, x = interpolated_polyline(head, tail, 0.25)
+    assert x[0] == pytest.approx(5.0)
+    assert x[-1] == pytest.approx(0.25 * head.x_at(10.0) + 0.75 * tail.x_at(10.0))
+
+
+def test_clamp_max_window_only_caps_inside_the_window():
+    traj = Trajectory([Segment(0.0, 10.0, 0.0, 10.0, 0.0)])
+    capped = traj.clamp_max_window(40.0, 3.0, 6.0)
+    assert capped.x_at(2.0) == pytest.approx(20.0)
+    assert capped.x_at(5.0) == pytest.approx(40.0)
+    assert capped.x_at(8.0) == pytest.approx(80.0)

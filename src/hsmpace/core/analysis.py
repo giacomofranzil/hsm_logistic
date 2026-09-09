@@ -46,7 +46,19 @@ class GapAnalysis:
         return self.min_gap >= self.gap_min
 
 
-def gap_series(front: PieceResult, rear: PieceResult) -> PiecewiseQuad:
+def _coilbox_busy_window(result: PieceResult) -> tuple[float, float] | None:
+    t_in = next((e.t for e in result.events if e.kind == "coilbox_in"), None)
+    if t_in is None:
+        return None
+    t_out = next((e.t for e in result.events if e.kind == "coilbox_empty"), None)
+    return t_in, t_out if t_out is not None else result.t_end
+
+
+def gap_series(
+    front: PieceResult,
+    rear: PieceResult,
+    line: Line | None = None,
+) -> PiecewiseQuad:
     """Distance between the tail of the leading piece and the head of the next one.
 
     The rear extremity of a piece is ``min(head, tail)`` and the front one
@@ -54,10 +66,18 @@ def gap_series(front: PieceResult, rear: PieceResult) -> PiecewiseQuad:
     furthest downstream, including during reverse passes, those two expressions
     reduce respectively to the tail of the piece in front and the head of the
     one behind. The invariant is verified by ``check_extremities``.
+
+    While a coilbox holds the leader, the follower sees the closer of that tail
+    (still on the roller tables) and the box axis: it cannot enter a busy box.
     """
     t_lo = max(front.t_start, rear.t_start)
     t_hi = min(front.t_end, rear.t_end)
-    return subtract(front.tail, rear.head, t_lo, t_hi)
+    obstacle = front.tail
+    if line is not None and line.coilbox is not None:
+        window = _coilbox_busy_window(front)
+        if window is not None:
+            obstacle = front.tail.clamp_max_window(line.coilbox.x, window[0], window[1])
+    return subtract(obstacle, rear.head, t_lo, t_hi)
 
 
 def check_extremities(result: PieceResult) -> list[str]:
@@ -94,7 +114,7 @@ def analyse_pair(
     gap_min: float,
     line: Line | None = None,
 ) -> GapAnalysis:
-    series = gap_series(front, rear)
+    series = gap_series(front, rear, line)
     if not series:
         return GapAnalysis(front.piece_id, rear.piece_id, series, None, None, None, gap_min)
 

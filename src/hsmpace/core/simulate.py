@@ -40,8 +40,18 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from .kinematics import EPS_T, Segment, Trajectory, _quad_roots, solve_crossing
-from .model import FWD, Case, Equipment, Line, ModelError, Product, RollingPass, SpeedEvent
+from .kinematics import EPS_T, Segment, Trajectory, _quad_roots, overlap_intervals, solve_crossing
+from .model import (
+    FWD,
+    KIND_STAND,
+    Case,
+    Equipment,
+    Line,
+    ModelError,
+    Product,
+    RollingPass,
+    SpeedEvent,
+)
 
 _MAX_ITER = 200_000
 _HORIZON = 2_000.0
@@ -221,6 +231,43 @@ def _ramp_start_time(
     return roots[0] if roots else None
 
 
+def finalise_occupancy(
+    line: Line,
+    head: Trajectory,
+    tail: Trajectory,
+    stand_occ: list[Occupancy],
+) -> tuple[Occupancy, ...]:
+    """Stand visits plus footprint overlap of every device marked occupy."""
+    out: list[Occupancy] = []
+    for o in stand_occ:
+        eq = line.get(o.equipment_id)
+        if not eq.occupies:
+            continue
+        spans = overlap_intervals(head, tail, eq.occupy_lo, eq.occupy_hi)
+        chosen: tuple[float, float] | None = None
+        for a, b in spans:
+            if a <= o.t_in + 1e-4 and b >= o.t_out - 1e-4:
+                chosen = (a, b)
+                break
+        if chosen is None:
+            overlapping = [
+                (a, b) for a, b in spans if a < o.t_out - 1e-9 and b > o.t_in + 1e-9
+            ]
+            if overlapping:
+                chosen = overlapping[0]
+        if chosen is not None:
+            out.append(Occupancy(o.equipment_id, o.pass_no, chosen[0], chosen[1]))
+        else:
+            out.append(o)
+    for eq in line.equipment:
+        if not eq.occupies or eq.kind == KIND_STAND:
+            continue
+        spans = overlap_intervals(head, tail, eq.occupy_lo, eq.occupy_hi)
+        for i, (a, b) in enumerate(spans, start=1):
+            out.append(Occupancy(eq.id, i, a, b))
+    return tuple(sorted(out, key=lambda item: (item.t_in, item.equipment_id, item.pass_no)))
+
+
 def simulate_piece(
     case: Case,
     product: Product,
@@ -240,6 +287,16 @@ def simulate_piece(
     x_coiler = coiler.x if coiler is not None else None
     x_finish = x_coiler if x_coiler is not None else line.x_max
     coiler_id = coiler.id if coiler is not None else ""
+    coilbox = line.coilbox
+    x_cb = coilbox.x if coilbox is not None else None
+    cb_arrived = False
+    cb_inverted = False
+    cb_tail_pinned = False
+    cb_hold_until: float | None = None
+    cb_overlap_warned = False
+    cb_mode: str | None = None
+    cb_thread_complete = False
+    L_stored = 0.0
 
     head = Trajectory()
     tail = Trajectory()
@@ -250,6 +307,7 @@ def simulate_piece(
     t = t_release
     x_head = line.start.x
     x_tail = x_head - product.slab_len
+    x_virt = x_head
     direction = FWD
     v_lead = 0.0
     lam = 1.0
@@ -323,6 +381,23 @@ def simulate_piece(
             )
         )
 
+    def coilbox_command_speed() -> float:
+        """Speed the box would like, once it is allowed to command.
+
+        Empty (0) fields keep the speed already in force: the caller ignores a
+        non-positive return value.
+        """
+        entered = x_virt - (x_cb or 0.0)
+        threading = (
+            product.coilbox_thread_length > 1e-9
+            and entered < product.coilbox_thread_length - 1e-9
+        )
+        if threading:
+            return product.coilbox_v_thread
+        if product.coilbox_v_coil > 1e-9:
+            return product.coilbox_v_coil
+        return product.coilbox_v_thread
+
     while not done:
         iterations += 1
         if iterations > _MAX_ITER:
@@ -332,6 +407,45 @@ def simulate_piece(
                 f"{piece_id}: exceeded the maximum time of {settings.max_time:.0f} s. "
                 "Check that every pass is reachable in the direction given."
             )
+
+        if cb_hold_until is not None:
+            dt = cb_hold_until - t
+            if dt > EPS_T:
+                head.append(Segment(t, cb_hold_until, x_head, 0.0, 0.0))
+                tail.append(Segment(t, cb_hold_until, x_tail, 0.0, 0.0))
+            t = cb_hold_until
+            cb_hold_until = None
+            # Both ends sit on the axis: the downstream extremity (kinematic
+            # head) is the original tail leaving first (LIFO). Historical traces
+            # are not swapped, so x_head >= x_tail holds before and after.
+            x_head = x_cb or x_head
+            x_tail = x_cb or x_tail
+            cb_inverted = True
+            cb_tail_pinned = True
+            direction = FWD
+            lam = 1.0
+            zoom_factor = 1.0
+            ramp_accel = coilbox.accel if coilbox is not None else None
+            v_uncoil = (
+                product.coilbox_v_uncoil
+                or product.coilbox_v_coil
+                or product.coilbox_v_thread
+            )
+            if v_uncoil <= 1e-9 and next_idx < len(passes):
+                nxt = passes[next_idx]
+                v_uncoil = nxt.approach_v if nxt.approach_v is not None else nxt.v_entry
+            nominal_target = v_uncoil if v_uncoil > 1e-9 else max(v_lead, 0.01)
+            events.append(
+                SimEvent(
+                    t,
+                    "coilbox_uncoil",
+                    coilbox.id if coilbox is not None else "",
+                    x_head,
+                    f"original tail leaves first, {nominal_target:.2f} m/s, "
+                    f"{L_stored:.1f} m stored",
+                )
+            )
+            continue
 
         if waiting_until is not None:
             dt = waiting_until - t
@@ -376,6 +490,51 @@ def simulate_piece(
             v_t, a_t = -v_lead, -a_lead
             lead_x, lead_v, lead_a = x_tail, v_t, a_t
             trail_x, trail_v, trail_a = x_head, v_h, a_h
+
+        if cb_arrived and not cb_inverted and direction == FWD and x_cb is not None:
+            lead_x, lead_v, lead_a = x_cb, 0.0, 0.0
+        if cb_tail_pinned and direction == FWD and x_cb is not None:
+            trail_x, trail_v, trail_a = x_cb, 0.0, 0.0
+            v_t, a_t = 0.0, 0.0
+
+        if (
+            coilbox is not None
+            and cb_arrived
+            and not cb_inverted
+            and not reversing
+            and not coiler_braking
+        ):
+            wanted = coilbox_command_speed()
+            if engaged:
+                if wanted > 1e-9 and abs(v_lead - wanted) > 0.05 and not cb_overlap_warned:
+                    warnings.append(
+                        "coilbox: the rougher is still rolling the tail; the mill remains "
+                        "master. Overlap with the box is not standard."
+                    )
+                    cb_overlap_warned = True
+            elif wanted > 1e-9 and abs(nominal_target - wanted) > _V_EPS:
+                nominal_target = wanted
+                zoom_factor = 1.0
+                ramp_accel = coilbox.accel
+                entered = x_virt - x_cb
+                mode = (
+                    "coiling"
+                    if product.coilbox_thread_length <= 1e-9
+                    or entered >= product.coilbox_thread_length - 1e-9
+                    else "threading"
+                )
+                if cb_mode != mode:
+                    events.append(
+                        SimEvent(
+                            t,
+                            "coilbox_speed",
+                            coilbox.id,
+                            x_cb,
+                            f"{mode} {wanted:.2f} m/s",
+                        )
+                    )
+                    cb_mode = mode
+                continue
 
         horizon = min(t + _HORIZON, t_max)
         candidates: list[tuple[float, str, object]] = []
@@ -538,7 +697,14 @@ def simulate_piece(
             # the leading extremity sits exactly on the stand and a second pass on
             # the same stand would bite at the very same instant
             ahead = direction * (x_stand - lead_x) > _X_EPS
-            if nxt.direction == direction and not reversing and ahead:
+            blocked_by_box = (
+                coilbox is not None
+                and x_cb is not None
+                and not cb_inverted
+                and nxt.direction == FWD
+                and x_stand > x_cb + _X_EPS
+            )
+            if nxt.direction == direction and not reversing and ahead and not blocked_by_box:
                 t_hit = solve_crossing(
                     t, lead_x, lead_v, lead_a, x_stand, t, horizon, direction
                 )
@@ -574,6 +740,30 @@ def simulate_piece(
             if t_hit is not None:
                 candidates.append((t_hit, "finish", None))
 
+        if coilbox is not None and x_cb is not None and direction == FWD:
+            if not cb_arrived:
+                t_hit = solve_crossing(t, x_head, v_h, a_h, x_cb, t, horizon, FWD)
+                if t_hit is not None:
+                    candidates.append((t_hit, "cb_arrive", None))
+            elif not cb_inverted:
+                t_hit = solve_crossing(t, x_tail, v_t, a_t, x_cb, t, horizon, FWD)
+                if t_hit is not None:
+                    candidates.append((t_hit, "cb_full", None))
+                if product.coilbox_thread_length > 1e-9 and not cb_thread_complete:
+                    target_virt = x_cb + product.coilbox_thread_length
+                    if x_virt + _X_EPS < target_virt:
+                        t_hit = solve_crossing(
+                            t, x_virt, v_h, a_h, target_virt, t, horizon, FWD
+                        )
+                        if t_hit is not None:
+                            candidates.append((t_hit, "cb_thread_done", None))
+            elif cb_tail_pinned:
+                t_hit = solve_crossing(
+                    t, x_head, v_h, a_h, x_cb + L_stored, t, horizon, FWD
+                )
+                if t_hit is not None:
+                    candidates.append((t_hit, "cb_unpin", None))
+
         if not candidates:
             if next_idx < len(passes):
                 nxt = passes[next_idx]
@@ -593,10 +783,22 @@ def simulate_piece(
         dt = max(t_next - t, 0.0)
 
         if dt > EPS_T:
-            head.append(Segment(t, t_next, x_head, v_h, a_h))
-            tail.append(Segment(t, t_next, x_tail, v_t, a_t))
-            x_head = x_head + v_h * dt + 0.5 * a_h * dt * dt
-            x_tail = x_tail + v_t * dt + 0.5 * a_t * dt * dt
+            if cb_arrived and not cb_inverted and x_cb is not None:
+                head.append(Segment(t, t_next, x_cb, 0.0, 0.0))
+                tail.append(Segment(t, t_next, x_tail, v_t, a_t))
+                x_virt = x_virt + v_h * dt + 0.5 * a_h * dt * dt
+                x_tail = x_tail + v_t * dt + 0.5 * a_t * dt * dt
+                x_head = x_cb
+            elif cb_tail_pinned and x_cb is not None:
+                head.append(Segment(t, t_next, x_head, v_h, a_h))
+                tail.append(Segment(t, t_next, x_cb, 0.0, 0.0))
+                x_head = x_head + v_h * dt + 0.5 * a_h * dt * dt
+                x_tail = x_cb
+            else:
+                head.append(Segment(t, t_next, x_head, v_h, a_h))
+                tail.append(Segment(t, t_next, x_tail, v_t, a_t))
+                x_head = x_head + v_h * dt + 0.5 * a_h * dt * dt
+                x_tail = x_tail + v_t * dt + 0.5 * a_t * dt * dt
             v_lead = max(v_lead + a_lead * dt, 0.0)
             t = t_next
 
@@ -627,6 +829,58 @@ def simulate_piece(
         if action == "coiler_brake":
             apply_coiler_command()
             emit_coiler_slowdown()
+            continue
+
+        if action == "cb_arrive":
+            cb_arrived = True
+            x_virt = max(x_head, x_cb or x_head)
+            x_head = x_cb or x_head
+            events.append(
+                SimEvent(
+                    t,
+                    "coilbox_in",
+                    coilbox.id if coilbox is not None else "",
+                    x_head,
+                    "head enters the coilbox",
+                )
+            )
+            continue
+
+        if action == "cb_thread_done":
+            cb_thread_complete = True
+            continue
+
+        if action == "cb_full":
+            x_tail = x_cb or x_tail
+            L_stored = max(x_virt - (x_cb or x_virt), 1e-6)
+            v_lead = 0.0
+            nominal_target = 0.0
+            zoom_factor = 1.0
+            delay = product.coilbox_delay
+            cb_hold_until = t + delay
+            events.append(
+                SimEvent(
+                    t,
+                    "coilbox_full",
+                    coilbox.id if coilbox is not None else "",
+                    x_tail,
+                    f"{L_stored:.1f} m stored, hold {delay:.1f} s",
+                )
+            )
+            continue
+
+        if action == "cb_unpin":
+            cb_tail_pinned = False
+            x_tail = x_cb or x_tail
+            events.append(
+                SimEvent(
+                    t,
+                    "coilbox_empty",
+                    coilbox.id if coilbox is not None else "",
+                    x_tail,
+                    "last metal leaves the coilbox",
+                )
+            )
             continue
 
         if action == "arm":
@@ -847,7 +1101,7 @@ def simulate_piece(
         tail=tail_phys,
         head_virtual=head_virtual,
         events=tuple(events),
-        occupancy=tuple(sorted(occupancy, key=lambda o: o.t_in)),
+        occupancy=finalise_occupancy(line, head_phys, tail_phys, occupancy),
         length_kinematic=length_kin,
         length_geometric=length_geo,
         x_coiler=x_coiler,

@@ -6,7 +6,7 @@ from hsmpace.core.analysis import analyse_sequence
 from hsmpace.core.model import harmonise_tandem_speeds
 from hsmpace.core.studies import base_results, sequence
 from hsmpace.example import example_case
-from hsmpace.viz.figures import gap_figure
+from hsmpace.viz.figures import TRACE_POINT_CHOICES, gantt_figure, gap_figure, space_time_figure
 
 
 def test_the_gap_chart_y_axis_follows_the_data_not_a_million_metres():
@@ -25,3 +25,24 @@ def test_the_gap_chart_y_axis_follows_the_data_not_a_million_metres():
     mins = [a.min_gap for a in analyses]
     assert y_lo < min(mins)
     assert y_hi > max(mins)
+
+
+def test_the_gantt_includes_occupied_markers():
+    case, _ = harmonise_tandem_speeds(example_case())
+    results = sequence(case, base_results(case), case.settings.pacing)
+    fig = gantt_figure(case, results)
+    labels = set()
+    for trace in fig.data:
+        labels.update(trace.y)
+    assert any("Primary descaler" in str(v) for v in labels)
+    assert fig.layout.title.text == "Occupancy"
+
+
+def test_extra_material_points_add_traces():
+    case, _ = harmonise_tandem_speeds(example_case())
+    results = sequence(case, base_results(case), case.settings.pacing)
+    fig2 = space_time_figure(case, results, n_points=2)
+    fig5 = space_time_figure(case, results, n_points=5)
+    assert TRACE_POINT_CHOICES[0] == 2
+    assert 21 in TRACE_POINT_CHOICES
+    assert len(fig5.data) > len(fig2.data)

@@ -23,7 +23,7 @@ from .core.model import (
 
 _EQUIPMENT = [
     Equipment("FURN", "start", 0.0, label="Furnace exit"),
-    Equipment("DS1", "marker", 15.0, label="Primary descaler"),
+    Equipment("DS1", "marker", 15.0, label="Primary descaler", occupy=True, occupy_before=2.0, occupy_after=2.0),
     Equipment("E1", "marker", 40.5, label="Edger E1"),
     Equipment("R1", "stand", 45.0, accel=1.5, label="Roughing stand R1"),
     Equipment("E2", "marker", 125.5, label="Edger E2"),
@@ -31,7 +31,7 @@ _EQUIPMENT = [
     Equipment("HC_en", "marker", 152.5, label="Passive panels entry"),
     Equipment("HC_ex", "marker", 234.5, label="Passive panels exit"),
     Equipment("SHR", "marker", 252.5, label="Crop shear"),
-    Equipment("DS2", "marker", 257.5, label="Finishing descaler"),
+    Equipment("DS2", "marker", 257.5, label="Finishing descaler", occupy=True, occupy_before=1.5, occupy_after=1.5),
     Equipment("F1", "stand", 261.5, accel=1.5, group="FM", label="F1"),
     Equipment("F2", "stand", 267.0, accel=1.5, group="FM", label="F2"),
     Equipment("F3", "stand", 272.5, accel=1.5, group="FM", label="F3"),

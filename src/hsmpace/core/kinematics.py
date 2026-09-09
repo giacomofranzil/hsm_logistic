@@ -190,6 +190,44 @@ class Trajectory:
             clamped = True
         return Trajectory(out)
 
+    def clamp_max_window(self, x_max: float, t_lo: float, t_hi: float) -> "Trajectory":
+        """``min(x, x_max)`` only on ``[t_lo, t_hi]``; the rest is unchanged.
+
+        Used for the coilbox gap: while the box is busy the follower sees the
+        closer of the leader's tail and the box axis.
+        """
+        if t_hi <= t_lo + EPS_T:
+            return Trajectory(list(self.segments))
+        out: list[Segment] = []
+        for s in self.segments:
+            cuts = [s.t0]
+            if s.t0 < t_lo < s.t1:
+                cuts.append(t_lo)
+            if s.t0 < t_hi < s.t1:
+                cuts.append(t_hi)
+            cuts.append(s.t1)
+            for a, b in zip(cuts[:-1], cuts[1:]):
+                if b <= a + EPS_T:
+                    continue
+                x0 = s.x_at(a)
+                v0 = s.v_at(a)
+                in_window = t_lo - EPS_T <= a and b <= t_hi + EPS_T
+                if not in_window:
+                    out.append(Segment(a, b, x0, v0, s.a))
+                    continue
+                if x0 >= x_max - EPS_X:
+                    out.append(Segment(a, b, x_max, 0.0, 0.0))
+                    continue
+                t_hit = solve_crossing(a, x0, v0, s.a, x_max, a, b, direction=1)
+                if t_hit is None:
+                    out.append(Segment(a, b, x0, v0, s.a))
+                    continue
+                if t_hit > a + EPS_T:
+                    out.append(Segment(a, t_hit, x0, v0, s.a))
+                if t_hit < b - EPS_T:
+                    out.append(Segment(t_hit, b, x_max, 0.0, 0.0))
+        return Trajectory(out)
+
     def truncate(self, t_end: float) -> "Trajectory":
         out: list[Segment] = []
         for s in self.segments:
@@ -216,6 +254,14 @@ class Trajectory:
                 ts.append(t)
                 xs.append(s.x_at(t))
         return ts, xs
+
+    def knot_times(self) -> list[float]:
+        times: list[float] = []
+        for s in self.segments:
+            if not times:
+                times.append(s.t0)
+            times.append(s.t1)
+        return times
 
     def crossing_times(self, target: float, direction: int = 0) -> list[float]:
         """Instants at which the trajectory crosses ``target``."""
@@ -365,3 +411,72 @@ def subtract(a: Trajectory, b: Trajectory, t_lo: float, t_hi: float) -> Piecewis
         c2 = 0.5 * (sa.a - sb.a)
         pieces.append(QuadPiece(lo, hi, c0, c1, c2))
     return PiecewiseQuad(pieces)
+
+
+def overlap_intervals(
+    head: Trajectory,
+    tail: Trajectory,
+    x_lo: float,
+    x_hi: float,
+) -> list[tuple[float, float]]:
+    """Time intervals when the piece [tail, head] overlaps [x_lo, x_hi].
+
+    Direction independent: a reversing bar can occupy the same device twice.
+    """
+    if not head or not tail:
+        return []
+    t0 = max(head.t_start, tail.t_start)
+    t1 = min(head.t_end, tail.t_end)
+    if t1 <= t0 + EPS_T:
+        return []
+    times = {t0, t1}
+    for traj in (head, tail):
+        for x in (x_lo, x_hi):
+            for t in traj.crossing_times(x):
+                if t0 - 1e-9 <= t <= t1 + 1e-9:
+                    times.add(min(max(t, t0), t1))
+    ordered = sorted(times)
+
+    def overlaps(t: float) -> bool:
+        xh = head.x_at(t)
+        xt = tail.x_at(t)
+        lo, hi = (xt, xh) if xt <= xh else (xh, xt)
+        return hi >= x_lo - 1e-9 and lo <= x_hi + 1e-9
+
+    intervals: list[tuple[float, float]] = []
+    active: float | None = None
+    for ta, tb in zip(ordered[:-1], ordered[1:]):
+        mid = 0.5 * (ta + tb)
+        on = overlaps(mid)
+        if on and active is None:
+            active = ta
+        elif not on and active is not None:
+            if ta > active + 1e-9:
+                intervals.append((active, ta))
+            active = None
+    if active is not None and ordered[-1] > active + 1e-9:
+        intervals.append((active, ordered[-1]))
+    return intervals
+
+
+def interpolated_polyline(
+    head: Trajectory,
+    tail: Trajectory,
+    fraction: float,
+    curve_points: int = 8,
+) -> tuple[list[float], list[float]]:
+    """Geometric interpolation of the current length: 0 = tail, 1 = head.
+
+    While the piece is free this is also the mass fraction. While stands are
+    engaged it remains a geometric fraction of the visible length, not a
+    reconstruction of gauge changes along the mill.
+    """
+    fraction = min(max(fraction, 0.0), 1.0)
+    if fraction <= 1e-15:
+        return tail.polyline(curve_points)
+    if fraction >= 1.0 - 1e-15:
+        return head.polyline(curve_points)
+    times = sorted(set(head.polyline(curve_points)[0] + tail.polyline(curve_points)[0]))
+    xs = [(1.0 - fraction) * tail.x_at(t) + fraction * head.x_at(t) for t in times]
+    return times, xs
+

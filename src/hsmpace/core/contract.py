@@ -49,6 +49,9 @@ def case_to_dict(case: Case) -> dict:
                 "accel_mps2": e.accel,
                 "group": e.group,
                 "label": e.label,
+                "occupy": e.occupy,
+                "occupy_before_m": e.occupy_before,
+                "occupy_after_m": e.occupy_after,
             }
             for e in case.line.equipment
         ],
@@ -82,6 +85,11 @@ def case_to_dict(case: Case) -> dict:
                 "slab_thk_mm": p.slab_thk,
                 "slab_wid_mm": p.slab_wid,
                 "slab_len_m": p.slab_len,
+                "coilbox_v_thread_mps": p.coilbox_v_thread,
+                "coilbox_v_coil_mps": p.coilbox_v_coil,
+                "coilbox_v_uncoil_mps": p.coilbox_v_uncoil,
+                "coilbox_thread_length_m": p.coilbox_thread_length,
+                "coilbox_delay_s": p.coilbox_delay,
                 "passes": [
                     {
                         "pass_no": rp.pass_no,
@@ -136,6 +144,9 @@ def case_from_dict(data: dict) -> Case:
             accel=float(e.get("accel_mps2", 1.0)),
             group=e.get("group", ""),
             label=e.get("label", ""),
+            occupy=e.get("occupy"),
+            occupy_before=float(e.get("occupy_before_m", 0.0) or 0.0),
+            occupy_after=float(e.get("occupy_after_m", 0.0) or 0.0),
         )
         for e in data.get("layout", [])
     )
@@ -198,6 +209,11 @@ def case_from_dict(data: dict) -> Case:
                 label=p.get("label", ""),
                 grade=p.get("grade", ""),
                 passes=passes,
+                coilbox_v_thread=float(p.get("coilbox_v_thread_mps", 0.0) or 0.0),
+                coilbox_v_coil=float(p.get("coilbox_v_coil_mps", 0.0) or 0.0),
+                coilbox_v_uncoil=float(p.get("coilbox_v_uncoil_mps", 0.0) or 0.0),
+                coilbox_thread_length=float(p.get("coilbox_thread_length_m", 0.0) or 0.0),
+                coilbox_delay=float(p.get("coilbox_delay_s", 0.0) or 0.0),
             )
         )
 

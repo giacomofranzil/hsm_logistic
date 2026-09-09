@@ -110,6 +110,9 @@ Candidates:
 7. **braking point** of the final slowdown towards the coiler, see below
 8. **end of run**: crossing of the coiler position by the trailing extremity, only once no pass is
    left and no stand is engaged
+9. **coilbox**, when a `coilbox` row is present: head arrival at the axis; virtual-head travel equal
+   to `coilbox_thread_length_m` (switch from threading to coiling speed); tail arrival (store, then
+   hold `coilbox_delay_s`); payout of the stored length (tail leaves the axis)
 
 If no candidate exists the simulation is ill posed: when passes are left, the next one is not
 reachable in the direction given; otherwise a speed command is missing at the end of the route. Either
@@ -134,7 +137,15 @@ If the pass defines a zoom, a relative speed event is registered with trigger at
 `x_stand + zoom_trigger`, forward direction, valid while rolling as well. That offset is
 **independent of which coiler takes the strip**. TRoll does not treat the downcoilers, so the same
 virtual travel is used for every assigned mandrel: it is not recomputed as table plus wraps. Pinning
-and the tail slowdown use that mandrel; the zoom trigger does not.
+and the tail slowdown use that mandrel; the zoom trigger does not. `zoom_pct` is a relative change
+of the commanded speed:
+
+```
+zoom_factor = zoom_factor * (1 + zoom_pct / 100)
+```
+
+so `+10` speeds up by ten per cent and `-20` slows down by twenty. Values of `-100` or below are
+rejected at validation.
 
 **Tail-out** of pass `p`:
 
@@ -181,7 +192,25 @@ distance is the same for either of them.
 
 **Speed event**: if stands are engaged and the event is not marked valid while rolling, it is set aside
 as deferred, the last one arriving replacing the previous. Otherwise, a relative event multiplies
-`zoom_factor` and an absolute one assigns `nominal_target` and resets `zoom_factor` to 1.
+`zoom_factor` by `(1 + rel_pct/100)` and an absolute one assigns `nominal_target` and resets
+`zoom_factor` to 1.
+
+### Coilbox
+
+At most one `coilbox` in the layout, mandrel-less: the axis is the station. Speeds live on the
+product (`coilbox_v_thread`, `coilbox_v_coil`, `coilbox_v_uncoil`, `coilbox_thread_length`,
+`coilbox_delay`). Empty thread length switches to coiling as soon as the head is in; empty delay
+starts uncoiling as soon as the tail is in.
+
+While the head is in and the tail has not yet arrived, the physical head is pinned at the axis and
+a virtual head continues past it (that travel is `coilbox_thread_length`). Finishing-mill bites
+downstream of the box are blocked until uncoiling. If the rougher still holds the tail, the mill
+remains master and a warning is emitted: overlap with the box is not a standard cycle.
+
+At tail-in the piece is a point on the axis. After the hold, the original tail leaves first toward
+the finishing mill (LIFO): the downstream extremity travels from the axis at uncoil speed, the
+upstream extremity stays until the stored length has been paid out. Uncoil speed is overwritten by
+any section event further downstream and then by the F1 bite.
 
 ### Anticipated ramps
 
@@ -272,6 +301,13 @@ acceleration of its stand.
 * **conservation check**: the integrated final length must match
   `L_slab * (h_slab * w_slab) / (h_final * w_final)`. With this model they match by construction: a
   deviation signals an input or implementation error.
+* **occupancy**: a device is busy when the piece interval `[tail, head]` overlaps
+  `[x - occupy_before, x + occupy_after]`. Default occupy is yes for stand, coiler and coilbox, no
+  for marker and start. Empty footprints on a stand reduce to bite → tail-out. A reversing bar can
+  occupy the same device twice.
+* **intermediate material points**: not part of the event loop. After the run, `n` traces
+  (`n ∈ {2, 3, 5, …, 21}`, default 2) are reconstructed as geometric fractions of the current
+  length between tail and head.
 
 ## 6. Mass flow balance in the tandem
 
@@ -294,8 +330,13 @@ two expressions reduce respectively to the tail of the piece in front and the he
 The invariant `x_head >= x_tail` must be verified, not assumed.
 
 ```
-gap(t) = tail_front(t) - head_rear(t)
+gap(t) = obstacle_front(t) - head_rear(t)
 ```
+
+`obstacle_front` is the tail of the piece in front, except while that piece occupies a coilbox:
+then it is `min(tail_front(t), x_coilbox)`, so the follower sees the gap to the box axis or to the
+tail still on the roller tables, whichever is closer. Open-loop: the tool reports the gap, it does
+not interlock.
 
 The difference between two segmented trajectories is a **piecewise quadratic** function: the knots of
 the two trajectories are merged and on each interval

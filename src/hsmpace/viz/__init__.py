@@ -1,6 +1,7 @@
 """Plotly charts. No core module imports this package."""
 
 from .figures import (
+    TRACE_POINT_CHOICES,
     gantt_figure,
     gap_figure,
     monte_carlo_figure,
@@ -9,6 +10,7 @@ from .figures import (
 )
 
 __all__ = [
+    "TRACE_POINT_CHOICES",
     "gantt_figure",
     "gap_figure",
     "monte_carlo_figure",

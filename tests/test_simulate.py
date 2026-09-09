@@ -577,3 +577,209 @@ def test_zoom_trigger_is_the_same_on_both_coilers():
     assert near.x_coiler == pytest.approx(120.0)
     assert far.x_coiler == pytest.approx(180.0)
     assert far.head.x_at(far.t_end) > near.x_coiler + 1e-3
+
+
+def test_negative_zoom_slows_the_tandem_down():
+    case = _case(
+        _line([("R", 50.0)]),
+        [_pass(1, "R", FWD, 100.0, 50.0, 4.0, zoom_pct=-20.0, zoom_trigger=200.0)],
+        slab_len=60.0,
+    )
+    res = simulate_piece(case, case.products[0])
+    zoom = next(e for e in res.events if e.kind == "zoom")
+    slowdown = next(e for e in res.events if e.kind == "coiler_slowdown")
+    assert res.tail.v_at(0.5 * (zoom.t + slowdown.t)) == pytest.approx(3.2, rel=1e-6)
+
+
+def test_zoom_pct_of_minus_100_is_rejected():
+    case = _case(
+        _line([("R", 50.0)]),
+        [_pass(1, "R", FWD, 100.0, 50.0, 4.0, zoom_pct=-100.0, zoom_trigger=10.0)],
+    )
+    messages = [p.message for p in validate_case(case) if not p.is_warning]
+    assert any("zoom_pct" in m and "-100" in m for m in messages)
+
+
+def test_descaler_occupancy_uses_the_footprint():
+    from hsmpace.example import example_case
+
+    case, _ = harmonise_tandem_speeds(example_case())
+    res = simulate_piece(case, case.products[0], coiler=case.line.get("DC1"))
+    ds1 = [o for o in res.occupancy if o.equipment_id == "DS1"]
+    ds2 = [o for o in res.occupancy if o.equipment_id == "DS2"]
+    assert ds1 and ds2
+    assert all(o.duration > 0.05 for o in ds1 + ds2)
+    e1 = [o for o in res.occupancy if o.equipment_id == "E1"]
+    assert e1 == []
+
+
+def test_a_reversing_bar_can_occupy_a_marker_twice():
+    equipment = (
+        Equipment("ST", "start", 0.0, accel=1.0),
+        Equipment("DS", "marker", 30.0, occupy=True, occupy_before=1.0, occupy_after=1.0),
+        Equipment("R", "stand", 50.0, accel=1.0),
+        Equipment("DC", "coiler", 400.0, accel=1.0),
+    )
+    line = Line(
+        equipment,
+        (
+            Section(
+                "S1",
+                x_start=0.0,
+                length=400.0,
+                events=(SpeedEvent("S1-1", "S1", x_trigger=0.0, v_target=2.0),),
+            ),
+        ),
+    )
+    case = _case(
+        line,
+        [
+            _pass(1, "R", FWD, 100.0, 80.0, 3.0, reversing_delay=1.0, reversing_clearance=25.0),
+            _pass(2, "R", REV, 80.0, 60.0, 3.0, reversing_delay=1.0, reversing_clearance=6.0),
+            _pass(3, "R", FWD, 60.0, 40.0, 3.0),
+        ],
+        slab_len=10.0,
+    )
+    res = simulate_piece(case, case.products[0])
+    visits = [o for o in res.occupancy if o.equipment_id == "DS"]
+    assert len(visits) >= 2
+
+
+def _coilbox_line(x_cb: float = 100.0, x_r: float = 40.0, x_f: float = 160.0, x_dc: float = 240.0) -> Line:
+    return Line(
+        (
+            Equipment("ST", "start", 0.0, accel=1.0),
+            Equipment("R", "stand", x_r, accel=1.0),
+            Equipment("CB", "coilbox", x_cb, accel=1.0),
+            Equipment("F", "stand", x_f, accel=1.0),
+            Equipment("DC", "coiler", x_dc, accel=1.0),
+        ),
+        (
+            Section(
+                "S1",
+                x_start=0.0,
+                length=x_r,
+                events=(SpeedEvent("S1-1", "S1", x_trigger=0.0, v_target=2.0),),
+            ),
+            Section(
+                "S2",
+                x_start=x_r,
+                length=x_cb - x_r,
+                events=(SpeedEvent("S2-1", "S2", x_trigger=(x_r + x_cb) / 2, v_target=3.0),),
+            ),
+            Section(
+                "S3",
+                x_start=x_cb,
+                length=x_f - x_cb,
+                events=(SpeedEvent("S3-1", "S3", x_trigger=x_cb + 5.0, v_target=2.5),),
+            ),
+            Section("S4", x_start=x_f, length=x_dc - x_f),
+        ),
+    )
+
+
+def _coilbox_case(
+    *,
+    x_cb: float = 100.0,
+    thread_length: float = 0.0,
+    delay: float = 0.0,
+    v_thread: float = 2.0,
+    v_coil: float = 3.0,
+    v_uncoil: float = 2.0,
+    slab_len: float = 10.0,
+    n_pieces: int = 2,
+    pacing: float = 80.0,
+) -> Case:
+    product = Product(
+        id="P",
+        slab_thk=100.0,
+        slab_wid=1000.0,
+        slab_len=slab_len,
+        passes=(
+            _pass(1, "R", FWD, 100.0, 50.0, 4.0),
+            _pass(2, "F", FWD, 50.0, 25.0, 8.0),
+        ),
+        coilbox_v_thread=v_thread,
+        coilbox_v_coil=v_coil,
+        coilbox_v_uncoil=v_uncoil,
+        coilbox_thread_length=thread_length,
+        coilbox_delay=delay,
+    )
+    return Case(
+        line=_coilbox_line(x_cb=x_cb),
+        products=(product,),
+        settings=SimSettings(n_pieces=n_pieces, pacing=pacing),
+    )
+
+
+def test_coilbox_inverts_and_pays_out():
+    from hsmpace.core.analysis import check_extremities
+
+    case = _coilbox_case(delay=0.0, thread_length=0.0)
+    res = simulate_piece(case, case.products[0])
+    kinds = [e.kind for e in res.events]
+    assert "coilbox_in" in kinds
+    assert "coilbox_full" in kinds
+    assert "coilbox_uncoil" in kinds
+    assert "coilbox_empty" in kinds
+    assert kinds.count("bite") == 2
+    assert check_extremities(res) == []
+    arrived = next(e for e in res.events if e.kind == "coilbox_in")
+    empty = next(e for e in res.events if e.kind == "coilbox_empty")
+    mid = 0.5 * (arrived.t + next(e.t for e in res.events if e.kind == "coilbox_full"))
+    assert res.head.x_at(mid) == pytest.approx(100.0, abs=1e-6)
+    assert res.tail.x_at(mid) < 100.0 - 0.5
+    after = empty.t + 0.2
+    assert res.head.x_at(after) > res.tail.x_at(after) + 0.1
+    assert abs(res.length_error) < 0.5
+    assert not any("overlap" in w for w in res.warnings)
+
+
+def test_coilbox_thread_length_switches_to_coiling_speed():
+    case = _coilbox_case(thread_length=12.0, v_thread=2.0, v_coil=3.5)
+    res = simulate_piece(case, case.products[0])
+    speeds = [e for e in res.events if e.kind == "coilbox_speed"]
+    assert any("threading" in e.detail for e in speeds)
+    assert any("coiling" in e.detail for e in speeds)
+
+
+def test_coilbox_delay_holds_before_uncoiling():
+    case = _coilbox_case(delay=2.5)
+    res = simulate_piece(case, case.products[0])
+    full = next(e for e in res.events if e.kind == "coilbox_full")
+    uncoil = next(e for e in res.events if e.kind == "coilbox_uncoil")
+    assert uncoil.t - full.t == pytest.approx(2.5, abs=1e-6)
+    assert res.head.v_at(0.5 * (full.t + uncoil.t)) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_coilbox_warns_when_the_rougher_still_holds_the_tail():
+    case = _coilbox_case(x_cb=48.0)
+    res = simulate_piece(case, case.products[0])
+    assert any("mill remains master" in w for w in res.warnings)
+
+
+def test_two_coilboxes_are_rejected():
+    line = _coilbox_line()
+    extra = Equipment("CB2", "coilbox", 110.0, accel=1.0)
+    case = replace(
+        _coilbox_case(),
+        line=Line(line.equipment + (extra,), line.sections),
+    )
+    messages = [p.message for p in validate_case(case) if not p.is_warning]
+    assert any("at most one coilbox" in m for m in messages)
+
+
+def test_follower_gap_sees_the_busy_coilbox_axis():
+    from hsmpace.core.analysis import analyse_pair
+    from hsmpace.core.simulate import shift_result
+
+    case = _coilbox_case(pacing=30.0)
+    first = simulate_piece(case, case.products[0])
+    second = shift_result(first, 25.0, "#2")
+    analysis = analyse_pair(first, second, gap_min=5.0, line=case.line)
+    full = next(e for e in first.events if e.kind == "coilbox_full")
+    empty = next(e for e in first.events if e.kind == "coilbox_empty")
+    t = 0.5 * (full.t + empty.t)
+    if second.t_start < t < second.t_end:
+        expected = 100.0 - second.head.x_at(t)
+        assert analysis.series.value_at(t) == pytest.approx(expected, abs=0.05)

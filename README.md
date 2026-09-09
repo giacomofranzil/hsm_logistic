@@ -24,7 +24,11 @@ the minimum cadence at which pieces can enter the process.
 
 * **Monte Carlo robustness**: probability of a violation once pass speeds, dead times and release
   instants have the dispersion they have in the plant.
-* **Stand occupancy** as a Gantt chart and a full event log.
+* **Occupancy** as a Gantt chart of every device marked busy (stands, coilers, coilbox, descalers)
+  and a full event log.
+* **Coilbox**, one per line: the piece shrinks to the axis, the original tail leaves first toward
+  the finishing mill, and the gap while the box is busy is taken to the axis (or to the tail still
+  on the roller tables, if that is closer).
 * **Comparison against measured tracking**, to validate the model on real data.
 
 ## How to use it
@@ -176,8 +180,6 @@ Explicit choices, not oversights:
 
 * **no interlocks and no hold points**: the pieces follow their nominal profiles and the tool reports
   where the gap drops below the threshold, without stopping the piece behind as the plant logic would;
-* **no coilbox** (deferred: it is the only element that makes the piece point-like and swaps head and
-  tail);
 * roller slip neglected, infinite jerk, acceleration equal to deceleration;
 * no speed constraint tied to a position window: that is expressed with sections and events;
 * no thermal, roll force or spread model;

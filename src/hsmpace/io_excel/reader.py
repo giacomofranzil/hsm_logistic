@@ -251,12 +251,18 @@ def _read_layout(
             table.name,
             table.ref(row, "equipment_id"),
         )
-        if kind not in ("start", "stand", "coiler", "marker"):
+        if kind not in ("start", "stand", "coiler", "coilbox", "marker"):
             issues.add(
                 table.name,
                 table.ref(row, "kind"),
-                f"kind {kind!r} is not valid: use start, stand, coiler or marker",
+                f"kind {kind!r} is not valid: use start, stand, coiler, coilbox or marker",
             )
+        occupy_raw = table.raw(row, "occupy")
+        occupy: bool | None
+        if occupy_raw is None or occupy_raw == "":
+            occupy = None
+        else:
+            occupy = table.flag(row, "occupy")
         out.append(
             Equipment(
                 id=table.text(row, "equipment_id"),
@@ -266,6 +272,15 @@ def _read_layout(
                 or 1.0,
                 group=table.text(row, "group", required=False),
                 label=table.text(row, "label", required=False),
+                occupy=occupy,
+                occupy_before=table.number(
+                    row, "occupy_before_m", required=False, default=0.0, minimum=0.0
+                )
+                or 0.0,
+                occupy_after=table.number(
+                    row, "occupy_after_m", required=False, default=0.0, minimum=0.0
+                )
+                or 0.0,
             )
         )
     if not out:
@@ -442,6 +457,26 @@ def _read_products(
                 label=table.text(row, "label", required=False),
                 grade=table.text(row, "grade", required=False),
                 passes=tuple(passes),
+                coilbox_v_thread=table.number(
+                    row, "coilbox_v_thread_mps", required=False, default=0.0, minimum=0.0
+                )
+                or 0.0,
+                coilbox_v_coil=table.number(
+                    row, "coilbox_v_coil_mps", required=False, default=0.0, minimum=0.0
+                )
+                or 0.0,
+                coilbox_v_uncoil=table.number(
+                    row, "coilbox_v_uncoil_mps", required=False, default=0.0, minimum=0.0
+                )
+                or 0.0,
+                coilbox_thread_length=table.number(
+                    row, "coilbox_thread_length_m", required=False, default=0.0, minimum=0.0
+                )
+                or 0.0,
+                coilbox_delay=table.number(
+                    row, "coilbox_delay_s", required=False, default=0.0, minimum=0.0
+                )
+                or 0.0,
             )
         )
 

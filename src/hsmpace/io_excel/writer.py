@@ -87,9 +87,21 @@ def write_case(case: Case, path: str | Path, include_data: bool = True) -> Path:
     if include_data:
         for row, eq in enumerate(case.line.equipment, start=2):
             # acceleration is only read on stand and coiler rows
-            accel = eq.accel if eq.kind in ("stand", "coiler") else None
+            accel = eq.accel if eq.kind in ("stand", "coiler", "coilbox") else None
+            occupy = None if eq.occupy is None else _bool(eq.occupy)
             for col, value in enumerate(
-                [eq.id, eq.kind, eq.x, accel, eq.group, eq.label], start=1
+                [
+                    eq.id,
+                    eq.kind,
+                    eq.x,
+                    accel,
+                    eq.group,
+                    eq.label,
+                    occupy,
+                    eq.occupy_before or None,
+                    eq.occupy_after or None,
+                ],
+                start=1,
             ):
                 ws.cell(row=row, column=col, value=value)
 
@@ -122,7 +134,19 @@ def write_case(case: Case, path: str | Path, include_data: bool = True) -> Path:
     if include_data:
         for row, p in enumerate(case.products, start=2):
             for col, value in enumerate(
-                [p.id, p.label, p.grade, p.slab_thk, p.slab_wid, p.slab_len], start=1
+                [
+                    p.id,
+                    p.label,
+                    p.grade,
+                    p.slab_thk,
+                    p.slab_wid,
+                    p.slab_len,
+                    p.coilbox_v_thread or None,
+                    p.coilbox_v_coil or None,
+                    p.coilbox_v_uncoil or None,
+                    p.coilbox_thread_length or None,
+                    p.coilbox_delay or None,
+                ], start=1
             ):
                 ws.cell(row=row, column=col, value=value)
 

@@ -20,18 +20,33 @@ SHEET_GUIDE = "Guide"
 MAX_EVENTS_PER_SECTION = 7
 
 LAYOUT_COLUMNS = [
-    ("equipment_id", "Unique identifier (R1, F7, DC1)"),
-    ("kind", "start | stand | coiler | marker"),
+    ("equipment_id", "Unique identifier (R1, F7, DC1, CB)"),
+    ("kind", "start | stand | coiler | coilbox | marker"),
     ("x_m", "Absolute position along the line, in metres"),
     (
         "accel_mps2",
         "Acceleration = deceleration, m/s2. Read only on stand rows, where it applies "
-        "while the piece is gripped, and on the coiler row, where it is the "
-        "deceleration of the tail down to the final speed, including while the "
-        "finishing mill is still rolling. Ignored on start and marker rows",
+        "while the piece is gripped, on the coiler row (final slowdown), and on the "
+        "coilbox row (threading, coiling and uncoiling ramps). Ignored on start and "
+        "marker rows",
     ),
     ("group", "Tandem group, for example FM for the finishing stands"),
     ("label", "Description shown on the charts"),
+    (
+        "occupy",
+        "YES to include this device in occupancy (busy time). Empty = default: YES "
+        "for stand, coiler and coilbox; NO for marker and start",
+    ),
+    (
+        "occupy_before_m",
+        "Footprint upstream of the axis, m. Occupancy starts when the piece reaches "
+        "x minus this value. Empty = 0 (the axis)",
+    ),
+    (
+        "occupy_after_m",
+        "Footprint downstream of the axis, m. Occupancy ends when the piece leaves "
+        "x plus this value. Empty = 0 (the axis)",
+    ),
 ]
 
 SECTION_COLUMNS = [
@@ -58,6 +73,31 @@ PRODUCT_COLUMNS = [
     ("slab_thk_mm", "Slab thickness, mm"),
     ("slab_wid_mm", "Slab width, mm"),
     ("slab_len_m", "Slab length, m"),
+    (
+        "coilbox_v_thread_mps",
+        "Coilbox threading speed, m/s (empty = keep the speed at arrival). "
+        "Ignored if there is no coilbox",
+    ),
+    (
+        "coilbox_v_coil_mps",
+        "Coilbox coiling speed after thread_length_m of strip has entered, m/s "
+        "(empty = threading speed, or the speed at arrival)",
+    ),
+    (
+        "coilbox_v_uncoil_mps",
+        "Coilbox uncoiling speed of the new head, m/s (empty = speed at the start "
+        "of uncoiling). Overwritten by any speed change downstream and by F1 bite",
+    ),
+    (
+        "coilbox_thread_length_m",
+        "Length of strip that must enter the coilbox, as virtual-head travel past "
+        "the axis, before switching from threading to coiling speed. Empty or 0 = "
+        "switch as soon as the head is in. Mandrel-less boxes: this is not a wrap count",
+    ),
+    (
+        "coilbox_delay_s",
+        "Hold after the tail is in the coilbox, before uncoiling, s. Empty = 0",
+    ),
 ]
 
 PASS_COLUMNS = [
@@ -87,7 +127,7 @@ PASS_COLUMNS = [
         "(empty = entry speed of the pass)",
     ),
     ("master", "YES on the stand that sets the mass flow of the tandem group"),
-    ("zoom_pct", "Zoom rolling: speed increase in per cent"),
+    ("zoom_pct", "Zoom rolling: relative speed change in per cent (negative = slowdown)"),
     (
         "zoom_trigger_m",
         "Zoom: virtual-head travel past this stand, m (same for every coiler; TRoll)",
@@ -97,7 +137,17 @@ PASS_COLUMNS = [
 
 # columns introduced after the first version of the schema: their absence does
 # not invalidate a workbook already in circulation
-OPTIONAL_COLUMNS = {"reversing_clearance_m"}
+OPTIONAL_COLUMNS = {
+    "reversing_clearance_m",
+    "occupy",
+    "occupy_before_m",
+    "occupy_after_m",
+    "coilbox_v_thread_mps",
+    "coilbox_v_coil_mps",
+    "coilbox_v_uncoil_mps",
+    "coilbox_thread_length_m",
+    "coilbox_delay_s",
+}
 
 SIM_KEYS = [
     ("pacing_s", 170.0, "Nominal cadence between one piece and the next, s"),
@@ -142,7 +192,7 @@ GUIDE_TEXT = [
     ("Sheet Layout: the kind column", True),
     (
         "Every row is one item of equipment placed at an absolute position. The kind "
-        "column decides what the model does with it and accepts four values:",
+        "column decides what the model does with it and accepts five values:",
         False,
     ),
     (
@@ -164,8 +214,27 @@ GUIDE_TEXT = [
         False,
     ),
     (
-        "    marker   anything with no dynamics: descalers, edgers, shears. It is only "
-        "drawn as a reference line on the charts and its acceleration is ignored.",
+        "    coilbox  one intermediate box between roughing and finishing. Mandrel-less: "
+        "the axis is the station, not a diameter. The head enters, strip is stored, then "
+        "the original tail leaves first toward the finishing mill. Speeds live on the "
+        "product row. At most one coilbox in the layout.",
+        False,
+    ),
+    (
+        "    marker   anything with no dynamics of its own: descalers, edgers, shears. "
+        "Acceleration is ignored. Tick occupy and set a footprint if you want its busy "
+        "time (water, for example); otherwise it is only a reference line on the charts.",
+        False,
+    ),
+    ("", False),
+    ("Sheet Layout: occupancy", True),
+    (
+        "occupy, occupy_before_m and occupy_after_m describe when a device is busy. The "
+        "axis stays at x_m; the footprint is [x minus before, x plus after]. Busy time "
+        "is the overlap of that interval with the piece [tail, head], so a reversing bar "
+        "can occupy the same descaler twice. Empty occupy: stands, coilers and the "
+        "coilbox are included; markers and start are not. Empty footprints: the axis "
+        "alone, which for a stand is bite to tail-out.",
         False,
     ),
     ("", False),
@@ -284,7 +353,24 @@ GUIDE_TEXT = [
         "same number is used whichever coiler takes the strip: TRoll does not treat the "
         "downcoilers, so 130 m of virtual travel is not recomputed as table plus wraps "
         "on the assigned mandrel. Pinning and the tail slowdown use that mandrel; the "
-        "zoom ramp does not.",
+        "zoom ramp does not. zoom_pct is a relative change: +10 speeds up by ten per "
+        "cent, -20 slows down by twenty. Values of -100 or below are rejected.",
+        False,
+    ),
+    ("", False),
+    ("Coilbox", True),
+    (
+        "One coilbox per line, kind coilbox on the Layout. Threading, coiling and "
+        "uncoiling speeds plus thread_length_m and delay_s are on the product. "
+        "thread_length_m is the virtual-head travel past the box axis before switching "
+        "from threading to coiling speed; empty or 0 switches as soon as the head is in "
+        "(no mandrel diameter: the box is mandrel-less). delay_s empty = uncoiling as "
+        "soon as the tail is in. While the rougher still holds the tail the mill remains "
+        "master; if that overlap happens the tool warns, because it is not standard. "
+        "Uncoiling speed is overwritten by any speed change further downstream and then "
+        "by the finishing-mill bite. The original tail becomes the kinematic head. "
+        "While the box is busy, the next piece sees the gap to the coilbox axis "
+        "(or to the tail still on the roller tables, if that is closer).",
         False,
     ),
     ("", False),
@@ -322,7 +408,7 @@ GUIDE_TEXT = [
     (
         "No interlocks and no hold points: the pieces follow their nominal profiles and "
         "the tool reports where the gap drops below the threshold, without stopping the "
-        "piece behind. Roller slip neglected, infinite jerk, no thermal model, no coilbox, "
+        "piece behind. Roller slip neglected, infinite jerk, no thermal model, "
         "no furnace cadence constraint.",
         False,
     ),

@@ -17,8 +17,9 @@ REV = -1
 KIND_START = "start"
 KIND_STAND = "stand"
 KIND_COILER = "coiler"
+KIND_COILBOX = "coilbox"
 KIND_MARKER = "marker"
-EQUIPMENT_KINDS = (KIND_START, KIND_STAND, KIND_COILER, KIND_MARKER)
+EQUIPMENT_KINDS = (KIND_START, KIND_STAND, KIND_COILER, KIND_COILBOX, KIND_MARKER)
 
 MAX_COILERS = 3
 
@@ -35,10 +36,30 @@ class Equipment:
     accel: float = 1.0
     group: str = ""
     label: str = ""
+    occupy: bool | None = None
+    """None = default by kind (stands, coilers and the coilbox are occupied)."""
+    occupy_before: float = 0.0
+    """Metres upstream of the axis that still count as busy."""
+    occupy_after: float = 0.0
+    """Metres downstream of the axis that still count as busy."""
 
     @property
     def display(self) -> str:
         return self.label or self.id
+
+    @property
+    def occupies(self) -> bool:
+        if self.occupy is not None:
+            return self.occupy
+        return self.kind in (KIND_STAND, KIND_COILER, KIND_COILBOX)
+
+    @property
+    def occupy_lo(self) -> float:
+        return self.x - self.occupy_before
+
+    @property
+    def occupy_hi(self) -> float:
+        return self.x + self.occupy_after
 
 
 @dataclass(frozen=True)
@@ -138,6 +159,17 @@ class Product:
     label: str = ""
     grade: str = ""
     passes: tuple[RollingPass, ...] = ()
+    coilbox_v_thread: float = 0.0
+    """Threading speed at the coilbox, m/s. Empty (0) keeps the speed at arrival."""
+    coilbox_v_coil: float = 0.0
+    """Coiling speed once ``coilbox_thread_length`` of strip has entered, m/s."""
+    coilbox_v_uncoil: float = 0.0
+    """Uncoiling speed of the new head, m/s. Overwritten by downstream events and F1."""
+    coilbox_thread_length: float = 0.0
+    """Strip length that must enter the box before switching to coiling speed.
+    Empty (0) switches to coiling as soon as the head is in."""
+    coilbox_delay: float = 0.0
+    """Hold after the tail is in, before uncoiling starts, s. Empty (0) = none."""
 
     @property
     def display(self) -> str:
@@ -203,6 +235,11 @@ class Line:
     @property
     def coilers(self) -> tuple[Equipment, ...]:
         return tuple(e for e in self.equipment if e.kind == KIND_COILER)
+
+    @property
+    def coilbox(self) -> Equipment | None:
+        boxes = [e for e in self.equipment if e.kind == KIND_COILBOX]
+        return boxes[0] if boxes else None
 
     @property
     def x_min(self) -> float:
@@ -377,6 +414,18 @@ def validate_case(case: Case) -> list[Problem]:
             add(f"equipment:{e.id}", f"{e.id}: kind {e.kind!r} is not valid")
         if e.accel <= 0.0:
             add(f"equipment:{e.id}", f"{e.id}: acceleration must be positive")
+        if e.occupy_before < 0.0 or e.occupy_after < 0.0:
+            add(
+                f"equipment:{e.id}",
+                f"{e.id}: occupancy footprint before/after the axis cannot be negative",
+            )
+
+    boxes = [e for e in line.equipment if e.kind == KIND_COILBOX]
+    if len(boxes) > 1:
+        add(
+            f"equipment:{boxes[1].id}",
+            "at most one coilbox is allowed in the layout",
+        )
 
     for s in line.sections:
         if s.length <= 0.0:
@@ -450,6 +499,12 @@ def validate_case(case: Case) -> list[Problem]:
                 )
             if rp.v_exit <= 0:
                 add(ptag, f"{head}: speed is not positive")
+            if rp.zoom_pct <= -100.0 + 1e-9:
+                add(
+                    ptag,
+                    f"{head}: zoom_pct {rp.zoom_pct:g}% would take the speed to zero "
+                    "or reverse it; use a value greater than -100",
+                )
             if rp.reversing_clearance < 0:
                 add(ptag, f"{head}: the reversing clearance cannot be negative")
             if (
@@ -472,6 +527,31 @@ def validate_case(case: Case) -> list[Problem]:
 
             h_prev, w_prev = rp.h_out, rp.w_out
             prev = rp
+
+        if boxes:
+            if product.coilbox_thread_length < 0:
+                add(tag, f"product {product.id}: coilbox_thread_length_m cannot be negative")
+            if product.coilbox_delay < 0:
+                add(tag, f"product {product.id}: coilbox_delay_s cannot be negative")
+            for name, value in (
+                ("coilbox_v_thread_mps", product.coilbox_v_thread),
+                ("coilbox_v_coil_mps", product.coilbox_v_coil),
+                ("coilbox_v_uncoil_mps", product.coilbox_v_uncoil),
+            ):
+                if value < 0:
+                    add(tag, f"product {product.id}: {name} cannot be negative")
+        elif (
+            product.coilbox_v_thread
+            or product.coilbox_v_coil
+            or product.coilbox_v_uncoil
+            or product.coilbox_thread_length
+            or product.coilbox_delay
+        ):
+            warn(
+                tag,
+                f"product {product.id}: coilbox speeds are filled but there is no "
+                "coilbox in the layout; they are ignored",
+            )
 
     for pid in case.piece_products:
         if all(p.id != pid for p in case.products):

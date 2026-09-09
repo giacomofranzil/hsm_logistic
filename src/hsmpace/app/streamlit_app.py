@@ -27,6 +27,7 @@ from hsmpace.core.tracking import parse_tracking
 from hsmpace.example import example_case
 from hsmpace.io_excel import ValidationError, read_case, write_case, write_results
 from hsmpace.viz import (
+    TRACE_POINT_CHOICES,
     gantt_figure,
     gap_figure,
     monte_carlo_figure,
@@ -168,6 +169,13 @@ def main() -> None:
             help="The unconstrained head, which carries on beyond the coiler and drives "
             "the zoom rolling trigger.",
         )
+        n_points = st.select_slider(
+            "Material points on the diagram",
+            options=TRACE_POINT_CHOICES,
+            value=2,
+            help="Head and tail always. Extra traces are reconstructed after the "
+            "simulation, as a geometric fraction of the current length.",
+        )
         st.header("Robustness")
         run_mc = st.checkbox("Run the Monte Carlo", value=False)
         mc_runs = st.number_input(
@@ -240,15 +248,23 @@ def main() -> None:
 
     with tabs[0]:
         st.plotly_chart(
-            space_time_figure(case, results, analyses, time_down, show_virtual_head=show_virtual),
+            space_time_figure(
+                case,
+                results,
+                analyses,
+                time_down,
+                show_virtual_head=show_virtual,
+                n_points=int(n_points),
+            ),
             width="stretch",
             config=PLOT_CONFIG,
         )
         st.caption(
-            "Every piece is the band between head and tail. The band widens where the "
-            "piece is being rolled and narrows once the head is gripped by the coiler. "
-            "Use the camera icon to export the picture: the PNG comes out at triple "
-            "resolution."
+            "Every piece is the band between head and tail. Extra material points, when "
+            "asked for, are a geometric fraction of that length, drawn after the run; "
+            "they do not enter the event loop. The band widens where the piece is being "
+            "rolled and narrows once the head is gripped by the coiler. Use the camera "
+            "icon to export the picture: the PNG comes out at triple resolution."
         )
 
     with tabs[1]:
@@ -302,6 +318,12 @@ def main() -> None:
 
     with tabs[3]:
         st.plotly_chart(gantt_figure(case, results), width="stretch", config=PLOT_CONFIG)
+        st.caption(
+            "Busy time of every device with occupy enabled: stands (bite to tail-out, "
+            "or the footprint when occupy_before_m / occupy_after_m are set), coilers, "
+            "the coilbox, and markers such as descalers. A reversing bar can occupy "
+            "the same device twice."
+        )
 
     with tabs[4]:
         piece_ids = [r.piece_id for r in results]
@@ -435,7 +457,14 @@ def main() -> None:
                 )
                 shifted = [s.shift(offset) for s in series]
                 st.plotly_chart(
-                    space_time_figure(case, results, analyses, time_down, tracking=shifted),
+                    space_time_figure(
+                        case,
+                        results,
+                        analyses,
+                        time_down,
+                        tracking=shifted,
+                        n_points=int(n_points),
+                    ),
                     width="stretch",
                     config=PLOT_CONFIG,
                 )
