@@ -211,7 +211,9 @@ remains master and a warning is emitted: overlap with the box is not a standard 
 
 At tail-in the piece is a point on the axis. After the hold, the original tail leaves first toward
 the finishing mill (LIFO): the downstream extremity travels from the axis at uncoil speed, the
-upstream extremity stays until the stored length has been paid out. Uncoil speed is overwritten by
+upstream extremity stays until the stored length has been paid out. Stored length is in metres of
+transfer bar; it is paid out at mill *entry* speed (`v_lead / lambda`), so a finishing bite during
+uncoiling does not empty the box too early. Uncoil speed is overwritten by
 any section event further downstream and then by the F1 bite.
 
 ### Anticipated ramps

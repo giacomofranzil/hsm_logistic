@@ -379,7 +379,9 @@ GUIDE_TEXT = [
         "Uncoiling speed is overwritten by any speed change further downstream and then "
         "by the finishing-mill bite. The original tail becomes the kinematic head. "
         "While the box is busy, the next piece sees the gap to the coilbox axis "
-        "(or to the tail still on the roller tables, if that is closer).",
+        "(or to the tail still on the roller tables, if that is closer). Uncoiling "
+        "is measured in metres of transfer bar at mill entry speed, so F1 may bite "
+        "while metal is still leaving the box.",
         False,
     ),
     ("", False),

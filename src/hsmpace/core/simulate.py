@@ -297,6 +297,7 @@ def simulate_piece(
     cb_mode: str | None = None
     cb_thread_complete = False
     L_stored = 0.0
+    L_paid = 0.0
 
     head = Trajectory()
     tail = Trajectory()
@@ -422,6 +423,7 @@ def simulate_piece(
             x_tail = x_cb or x_tail
             cb_inverted = True
             cb_tail_pinned = True
+            L_paid = 0.0
             direction = FWD
             lam = 1.0
             zoom_factor = 1.0
@@ -758,11 +760,17 @@ def simulate_piece(
                         if t_hit is not None:
                             candidates.append((t_hit, "cb_thread_done", None))
             elif cb_tail_pinned:
-                t_hit = solve_crossing(
-                    t, x_head, v_h, a_h, x_cb + L_stored, t, horizon, FWD
-                )
-                if t_hit is not None:
-                    candidates.append((t_hit, "cb_unpin", None))
+                # Stored length is transfer-bar metres. Metal leaves the box at
+                # mill entry speed v_lead/lambda, not at head speed: F1 can bite
+                # while the tail is still in the box.
+                v_box = v_lead / lam
+                a_box = a_lead / lam
+                if L_paid + 1e-9 < L_stored:
+                    t_hit = solve_crossing(
+                        t, L_paid, v_box, a_box, L_stored, t, horizon, FWD
+                    )
+                    if t_hit is not None:
+                        candidates.append((t_hit, "cb_unpin", None))
 
         if not candidates:
             if next_idx < len(passes):
@@ -794,6 +802,7 @@ def simulate_piece(
                 tail.append(Segment(t, t_next, x_cb, 0.0, 0.0))
                 x_head = x_head + v_h * dt + 0.5 * a_h * dt * dt
                 x_tail = x_cb
+                L_paid += (v_lead / lam) * dt + 0.5 * (a_lead / lam) * dt * dt
             else:
                 head.append(Segment(t, t_next, x_head, v_h, a_h))
                 tail.append(Segment(t, t_next, x_tail, v_t, a_t))

@@ -689,6 +689,8 @@ def _coilbox_case(
     slab_len: float = 10.0,
     n_pieces: int = 2,
     pacing: float = 80.0,
+    x_f: float = 160.0,
+    x_dc: float = 240.0,
 ) -> Case:
     product = Product(
         id="P",
@@ -706,7 +708,7 @@ def _coilbox_case(
         coilbox_delay=delay,
     )
     return Case(
-        line=_coilbox_line(x_cb=x_cb),
+        line=_coilbox_line(x_cb=x_cb, x_f=x_f, x_dc=x_dc),
         products=(product,),
         settings=SimSettings(n_pieces=n_pieces, pacing=pacing),
     )
@@ -804,6 +806,17 @@ def test_empty_coilbox_tick_still_uses_the_box():
     assert case.products[0].uses_coilbox(case.line)
     res = simulate_piece(case, case.products[0])
     assert any(e.kind == "coilbox_in" for e in res.events)
+
+
+def test_mass_balance_holds_when_f1_bites_during_coilbox_payout():
+    """Transfer bar ~20 m, F1 15 m past the box: finishing bites with metal still stored."""
+    case = _coilbox_case(x_cb=80.0, x_f=95.0, x_dc=180.0, delay=0.0)
+    res = simulate_piece(case, case.products[0])
+    f1 = next(e for e in res.events if e.kind == "bite" and e.equipment_id == "F")
+    empty = next(e for e in res.events if e.kind == "coilbox_empty")
+    assert f1.t < empty.t
+    assert abs(res.length_error) < 0.1
+    assert not any("mass balance" in w for w in res.warnings)
 
 
 def test_follower_gap_sees_the_busy_coilbox_axis():
