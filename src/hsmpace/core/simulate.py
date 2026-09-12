@@ -287,7 +287,7 @@ def simulate_piece(
     x_coiler = coiler.x if coiler is not None else None
     x_finish = x_coiler if x_coiler is not None else line.x_max
     coiler_id = coiler.id if coiler is not None else ""
-    coilbox = line.coilbox
+    coilbox = line.coilbox if product.uses_coilbox(line) else None
     x_cb = coilbox.x if coilbox is not None else None
     cb_arrived = False
     cb_inverted = False

@@ -769,6 +769,43 @@ def test_two_coilboxes_are_rejected():
     assert any("at most one coilbox" in m for m in messages)
 
 
+def test_product_can_bypass_the_coilbox():
+    from hsmpace.core.analysis import check_extremities
+
+    case = _coilbox_case()
+    product = replace(case.products[0], use_coilbox=False)
+    case = replace(case, products=(product,))
+    res = simulate_piece(case, product)
+    kinds = [e.kind for e in res.events]
+    assert "coilbox_in" not in kinds
+    assert "coilbox_full" not in kinds
+    assert "coilbox_uncoil" not in kinds
+    assert kinds.count("bite") == 2
+    assert check_extremities(res) == []
+    # the head crosses the axis without sitting there
+    t_cross = res.head.crossing_times(100.0, direction=1)
+    assert t_cross
+    t = t_cross[0] + 1.0
+    assert res.head.x_at(t) > 100.0 + 0.5
+    assert res.tail.x_at(t) < res.head.x_at(t)
+
+
+def test_bypass_ignores_coilbox_speeds_with_a_warning():
+    case = _coilbox_case()
+    product = replace(case.products[0], use_coilbox=False)
+    case = replace(case, products=(product,))
+    warnings = [p.message for p in validate_case(case) if p.is_warning]
+    assert any("bypass" in m for m in warnings)
+
+
+def test_empty_coilbox_tick_still_uses_the_box():
+    case = _coilbox_case()
+    assert case.products[0].use_coilbox is None
+    assert case.products[0].uses_coilbox(case.line)
+    res = simulate_piece(case, case.products[0])
+    assert any(e.kind == "coilbox_in" for e in res.events)
+
+
 def test_follower_gap_sees_the_busy_coilbox_axis():
     from hsmpace.core.analysis import analyse_pair
     from hsmpace.core.simulate import shift_result

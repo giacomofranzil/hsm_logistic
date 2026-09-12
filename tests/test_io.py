@@ -46,6 +46,7 @@ def test_the_empty_template_has_the_sheets_and_headers(tmp_path):
     assert "coiler_pattern" in guide
     assert "Several coilers" in guide
     assert "coilbox" in guide
+    assert "bypass" in guide
     assert "occupy" in guide
     assert "relative change" in guide
 
@@ -226,6 +227,29 @@ def test_an_older_workbook_without_occupy_columns_still_loads(tmp_path):
     assert ds1.occupy is None
     assert ds1.occupy_before == 0.0
     assert not ds1.occupies
+
+
+def test_an_older_workbook_without_the_product_coilbox_tick_still_loads(tmp_path):
+    path = write_case(example_case(), tmp_path / "no_cb_tick.xlsx")
+    wb = load_workbook(path)
+    ws = wb["Products"]
+    header = [c.value for c in ws[1]]
+    ws.delete_cols(header.index("coilbox") + 1)
+    wb.save(path)
+
+    loaded = read_case(path)
+    assert all(p.use_coilbox is None for p in loaded.products)
+
+
+def test_coilbox_bypass_round_trips_through_excel(tmp_path):
+    from dataclasses import replace
+
+    original = example_case()
+    product = replace(original.products[0], use_coilbox=False)
+    original = replace(original, products=(product,) + original.products[1:])
+    path = write_case(original, tmp_path / "bypass.xlsx")
+    loaded = read_case(path)
+    assert loaded.products[0].use_coilbox is False
 
 
 def test_tracking_csv_import():

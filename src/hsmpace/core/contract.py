@@ -37,6 +37,15 @@ def _direction_in(value: Any) -> int:
     return REV if str(value).lower() in {"rev", "-1", "indietro"} else FWD
 
 
+_MISSING = object()
+
+
+def _optional_flag(value: Any) -> bool | None:
+    if value is _MISSING or value is None or value == "":
+        return None
+    return bool(value)
+
+
 def case_to_dict(case: Case) -> dict:
     return {
         "contract_version": CONTRACT_VERSION,
@@ -85,6 +94,7 @@ def case_to_dict(case: Case) -> dict:
                 "slab_thk_mm": p.slab_thk,
                 "slab_wid_mm": p.slab_wid,
                 "slab_len_m": p.slab_len,
+                "use_coilbox": p.use_coilbox,
                 "coilbox_v_thread_mps": p.coilbox_v_thread,
                 "coilbox_v_coil_mps": p.coilbox_v_coil,
                 "coilbox_v_uncoil_mps": p.coilbox_v_uncoil,
@@ -209,6 +219,7 @@ def case_from_dict(data: dict) -> Case:
                 label=p.get("label", ""),
                 grade=p.get("grade", ""),
                 passes=passes,
+                use_coilbox=_optional_flag(p.get("use_coilbox", p.get("coilbox", _MISSING))),
                 coilbox_v_thread=float(p.get("coilbox_v_thread_mps", 0.0) or 0.0),
                 coilbox_v_coil=float(p.get("coilbox_v_coil_mps", 0.0) or 0.0),
                 coilbox_v_uncoil=float(p.get("coilbox_v_uncoil_mps", 0.0) or 0.0),

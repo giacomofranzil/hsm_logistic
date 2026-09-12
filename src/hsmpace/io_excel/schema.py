@@ -74,9 +74,14 @@ PRODUCT_COLUMNS = [
     ("slab_wid_mm", "Slab width, mm"),
     ("slab_len_m", "Slab length, m"),
     (
+        "coilbox",
+        "YES to send this product through the coilbox, NO to bypass it. "
+        "Empty = YES when a coilbox is in the Layout. Speeds below are ignored on bypass",
+    ),
+    (
         "coilbox_v_thread_mps",
         "Coilbox threading speed, m/s (empty = keep the speed at arrival). "
-        "Ignored if there is no coilbox",
+        "Ignored if there is no coilbox or coilbox is NO",
     ),
     (
         "coilbox_v_coil_mps",
@@ -147,6 +152,7 @@ OPTIONAL_COLUMNS = {
     "coilbox_v_uncoil_mps",
     "coilbox_thread_length_m",
     "coilbox_delay_s",
+    "coilbox",
 }
 
 SIM_KEYS = [
@@ -360,7 +366,10 @@ GUIDE_TEXT = [
     ("", False),
     ("Coilbox", True),
     (
-        "One coilbox per line, kind coilbox on the Layout. Threading, coiling and "
+        "One coilbox per line, kind coilbox on the Layout. Whether a given product "
+        "uses it is the coilbox tick on the Products sheet: YES or empty sends the "
+        "bar through the box; NO bypasses it (the station is only a point on the "
+        "line, like a marker). Threading, coiling and "
         "uncoiling speeds plus thread_length_m and delay_s are on the product. "
         "thread_length_m is the virtual-head travel past the box axis before switching "
         "from threading to coiling speed; empty or 0 switches as soon as the head is in "

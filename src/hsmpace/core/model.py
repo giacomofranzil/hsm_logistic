@@ -159,6 +159,8 @@ class Product:
     label: str = ""
     grade: str = ""
     passes: tuple[RollingPass, ...] = ()
+    use_coilbox: bool | None = None
+    """None = use the coilbox when one is in the layout; False = bypass."""
     coilbox_v_thread: float = 0.0
     """Threading speed at the coilbox, m/s. Empty (0) keeps the speed at arrival."""
     coilbox_v_coil: float = 0.0
@@ -170,6 +172,13 @@ class Product:
     Empty (0) switches to coiling as soon as the head is in."""
     coilbox_delay: float = 0.0
     """Hold after the tail is in, before uncoiling starts, s. Empty (0) = none."""
+
+    def uses_coilbox(self, line: Line | None = None) -> bool:
+        if self.use_coilbox is False:
+            return False
+        if line is not None and line.coilbox is None:
+            return False
+        return True
 
     @property
     def display(self) -> str:
@@ -528,7 +537,14 @@ def validate_case(case: Case) -> list[Problem]:
             h_prev, w_prev = rp.h_out, rp.w_out
             prev = rp
 
-        if boxes:
+        coilbox_filled = bool(
+            product.coilbox_v_thread
+            or product.coilbox_v_coil
+            or product.coilbox_v_uncoil
+            or product.coilbox_thread_length
+            or product.coilbox_delay
+        )
+        if boxes and product.uses_coilbox(line):
             if product.coilbox_thread_length < 0:
                 add(tag, f"product {product.id}: coilbox_thread_length_m cannot be negative")
             if product.coilbox_delay < 0:
@@ -540,13 +556,19 @@ def validate_case(case: Case) -> list[Problem]:
             ):
                 if value < 0:
                     add(tag, f"product {product.id}: {name} cannot be negative")
-        elif (
-            product.coilbox_v_thread
-            or product.coilbox_v_coil
-            or product.coilbox_v_uncoil
-            or product.coilbox_thread_length
-            or product.coilbox_delay
-        ):
+        elif boxes and product.use_coilbox is False and coilbox_filled:
+            warn(
+                tag,
+                f"product {product.id}: coilbox speeds are filled but coilbox is NO "
+                "(bypass); they are ignored",
+            )
+        elif not boxes and product.use_coilbox is True:
+            warn(
+                tag,
+                f"product {product.id}: coilbox is YES but there is no coilbox in the "
+                "layout; the tick is ignored",
+            )
+        elif not boxes and coilbox_filled:
             warn(
                 tag,
                 f"product {product.id}: coilbox speeds are filled but there is no "

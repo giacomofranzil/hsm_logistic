@@ -197,9 +197,11 @@ as deferred, the last one arriving replacing the previous. Otherwise, a relative
 
 ### Coilbox
 
-At most one `coilbox` in the layout, mandrel-less: the axis is the station. Speeds live on the
+At most one `coilbox` in the layout, mandrel-less: the axis is the station. Use of the box is
+per product: `use_coilbox` true or empty sends the bar through it, false bypasses it (the station
+is then only a point on the line). Speeds live on the
 product (`coilbox_v_thread`, `coilbox_v_coil`, `coilbox_v_uncoil`, `coilbox_thread_length`,
-`coilbox_delay`). Empty thread length switches to coiling as soon as the head is in; empty delay
+`coilbox_delay`) and are ignored on bypass. Empty thread length switches to coiling as soon as the head is in; empty delay
 starts uncoiling as soon as the tail is in.
 
 While the head is in and the tail has not yet arrived, the physical head is pinned at the axis and

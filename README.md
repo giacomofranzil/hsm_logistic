@@ -26,9 +26,9 @@ the minimum cadence at which pieces can enter the process.
   instants have the dispersion they have in the plant.
 * **Occupancy** as a Gantt chart of every device marked busy (stands, coilers, coilbox, descalers)
   and a full event log.
-* **Coilbox**, one per line: the piece shrinks to the axis, the original tail leaves first toward
-  the finishing mill, and the gap while the box is busy is taken to the axis (or to the tail still
-  on the roller tables, if that is closer).
+* **Coilbox**, one per line, used or bypassed per product: when used, the piece shrinks to the axis,
+  the original tail leaves first toward the finishing mill, and the gap while the box is busy is
+  taken to the axis (or to the tail still on the roller tables, if that is closer).
 * **Comparison against measured tracking**, to validate the model on real data.
 
 ## How to use it

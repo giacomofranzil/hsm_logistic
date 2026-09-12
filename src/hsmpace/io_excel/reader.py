@@ -457,6 +457,11 @@ def _read_products(
                 label=table.text(row, "label", required=False),
                 grade=table.text(row, "grade", required=False),
                 passes=tuple(passes),
+                use_coilbox=(
+                    None
+                    if table.raw(row, "coilbox") in (None, "")
+                    else table.flag(row, "coilbox")
+                ),
                 coilbox_v_thread=table.number(
                     row, "coilbox_v_thread_mps", required=False, default=0.0, minimum=0.0
                 )

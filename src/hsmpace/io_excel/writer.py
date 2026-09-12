@@ -141,6 +141,7 @@ def write_case(case: Case, path: str | Path, include_data: bool = True) -> Path:
                     p.slab_thk,
                     p.slab_wid,
                     p.slab_len,
+                    None if p.use_coilbox is None else _bool(p.use_coilbox),
                     p.coilbox_v_thread or None,
                     p.coilbox_v_coil or None,
                     p.coilbox_v_uncoil or None,
