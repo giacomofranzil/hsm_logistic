@@ -558,6 +558,8 @@ downwards.
 - **Coilbox deferred to phase 2.** I confirm this is the right call: it is the only element that
   introduces a special topological state (point-like piece and head/tail swap). The v1 target is a
   conventional layout. I leave the extension point in the state machine, but no code for now.
+  Later implemented: layout kind `coilbox`, product YES/NO, LIFO payout, gap to the axis; see
+  `docs/algorithm-spec.md` (Coilbox) and the Guide sheet.
 - **Q5 confirmed**: in the tandem the speeds follow from a master stand by mass flow, with a report of
   the deviations from the entered values.
 
@@ -671,7 +673,7 @@ alternates.
 had set, which meant the transfer table inherited the acceleration of the roughing stand. Now: the
 value next to a speed change applies to that ramp only, the stand governs while the piece is gripped,
 the section or the global default governs while it is free. As a side effect the acceleration on the
-layout is read only on `stand` rows and on the `coiler` row; on `start` and `marker` rows it was being
+layout is read only on `stand` rows, on the `coiler` row and on the `coilbox` row; on `start` and `marker` rows it was being
 ignored, so the template now leaves it blank there.
 
 **The reversal convention was backwards.** The delay and the clearance now belong to the pass the
@@ -694,8 +696,7 @@ default and the example mill uses 0.9.
 
 1. **Validation on real tracking**: the CSV format and the comparison in the UI are there, the data is
    not. Until the simulated is overlaid on the measured, the minimum pacing stays a number from a model.
-2. **Coilbox** (phase 2): point-like piece and head/tail swap.
-3. **Real multi-product sequences**: the code handles them, but the example workbook has a single
+2. **Real multi-product sequences**: the code handles them, but the example workbook has a single
    product. On a real rolling programme the pacing is not constant along the sequence.
-4. **Interlocks and hold points**, if one day the induced delay is needed instead of the diagnosis alone.
-5. **Bundling into an executable**, once it is clear what IT allows.
+3. **Interlocks and hold points**, if one day the induced delay is needed instead of the diagnosis alone.
+4. **Bundling into an executable**, once it is clear what IT allows.

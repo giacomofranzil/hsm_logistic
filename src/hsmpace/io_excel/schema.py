@@ -317,6 +317,11 @@ GUIDE_TEXT = [
         "by the mill.",
         False,
     ),
+    (
+        "Coilbox threading, coiling and uncoiling ramps use the acceleration on the "
+        "coilbox Layout row as ramp_accel.",
+        False,
+    ),
     ("", False),
     ("Reversing roughing", True),
     (

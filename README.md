@@ -46,6 +46,9 @@ The same application runs in two ways, and the choice can be deferred:
   network, no port to open towards the outside;
 * **on an office server**, with `hsmpace app --address 0.0.0.0`, with colleagues opening a URL.
 
+On the diagram, **Show the virtual head** keeps the unconstrained head after the coiler (the
+zoom trigger), and **Material points** draws 2, 3, 5, … or 21 traces along the current length.
+
 If Python cannot be installed on the machine, the package can be bundled into a single executable with
 PyInstaller and the behaviour stays identical.
 
@@ -111,6 +114,8 @@ Other conventions worth knowing:
   wraps. The trigger is the virtual travel past the stand, **the same for every assigned coiler**:
   TRoll does not treat the downcoilers, so the number is not recomputed as table plus wraps on that
   mandrel. Pinning and the tail slowdown use the assigned coiler; the zoom ramp does not.
+  `zoom_pct` is signed: `+10` speeds up by ten per cent, `-20` slows down by twenty.
+  Values of `-100` or below are rejected.
 * **Arrival at the coiler**: the slowdown starts as late as possible so that the tail reaches the
   coiler at `coiler_v_final_mps`, using the acceleration on the coiler row, including while the
   finishing mill is still rolling. The constraint is on the tail; the command is on the leading
@@ -136,17 +141,20 @@ in mm, speeds in m/s, times in s, accelerations in m/s2**.
 | Sheet | Content |
 |---|---|
 | `Info` | `schema_version`, mill name, notes |
-| `Layout` | equipment with position, kind (`start`, `stand`, `coiler`, `marker`), acceleration, tandem group |
+| `Layout` | equipment with position, kind (`start`, `stand`, `coiler`, `coilbox`, `marker`), acceleration, tandem group, occupancy (`occupy`, `occupy_before_m`, `occupy_after_m`) |
 | `Sections` | line sections with their own acceleration and up to 7 speed changes each, given as a distance from the section start plus a speed |
-| `Products` | slab dimensions and product data |
+| `Products` | slab dimensions, and coilbox use (`YES` / `NO` / empty) plus threading, coiling, uncoiling speeds, `coilbox_thread_length_m` and `coilbox_delay_s` |
 | `PassSchedule` | per pass: stand, direction, reduction, widths, speed, reversing delay and clearance, tandem master, zoom |
 | `Simulation` | pacing, number of pieces, product sequence, coiler cycle, minimum gap, roller table acceleration, final speed at the coiler, scan and Monte Carlo parameters |
 
 The `kind` column decides what the model does with a row, and `group` is functional rather than
 informative: stands sharing a group label form a tandem, and inside it the pass flagged as `master`
 sets the mass flow while the other speeds are recomputed from it. Acceleration is only read on `stand`
-rows, where it applies while the piece is gripped, and on the `coiler` row, where it sets the final
-slowdown. The `Guide` sheet inside the workbook explains all of this in place.
+rows, where it applies while the piece is gripped, on the `coiler` row, where it sets the final
+slowdown, and on the `coilbox` row, where it sets the threading, coiling and uncoiling ramps. It is
+ignored on `start` and `marker`. Empty `occupy` includes stands, coilers and the coilbox; markers
+and start are omitted unless ticked. The `Guide` sheet inside the workbook explains all of this in
+place.
 
 Sections need not match the spacing between stands: a physical section can be split into sub-sections
 at any notable point. An event that would fire while a pass is engaged is **deferred to
@@ -183,7 +191,8 @@ Explicit choices, not oversights:
 * roller slip neglected, infinite jerk, acceleration equal to deceleration;
 * no speed constraint tied to a position window: that is expressed with sections and events;
 * no thermal, roll force or spread model;
-* furnace cadence and coiler cycle out of scope, to be assessed separately.
+* furnace cadence out of scope, to be assessed separately. The coiler cycle (`coiler_pattern`) is
+  in scope.
 
 ## Project structure
 

@@ -72,9 +72,10 @@ accel = ramp_accel            if a ramp declaring its own acceleration is under 
       = table_accel           else, the global default from the settings
 ```
 
-Acceleration is therefore read from the layout only on stand rows, where it governs the piece while it
-is gripped, and on the coiler row, where it governs the final slowdown (as `ramp_accel = a_c * lam`,
-including while the mill is still rolling).
+Acceleration is therefore read from the layout on stand rows, where it governs the piece while it
+is gripped; on the coiler row, where it governs the final slowdown (as `ramp_accel = a_c * lam`,
+including while the mill is still rolling); and on the coilbox row, where it governs the threading,
+coiling and uncoiling ramps (`ramp_accel = coilbox.accel`). It is ignored on start and marker rows.
 
 The `lambda` of a pass is `(h_in * w_in) / (h_out * w_out)`. Length grows by itself, because the
 extremity downstream of every engaged stand is faster than the upstream one; it must not be imposed.
@@ -85,7 +86,9 @@ extremity downstream of every engaged stand is faster than the upstream one; it 
   `v_lead = 0`, `lam = 1`, `zoom_factor = 1`
 * `nominal_target` = approach speed of the first pass, that is the `approach_v` field when present,
   otherwise `v_exit / lambda` of the first pass
-* `accel` = acceleration of the starting equipment
+* `stand_accel` is seeded from the starting equipment and overwritten at the first bite. Until then
+  nothing is engaged, so free motion uses the section acceleration or `table_accel`. The start row
+  acceleration itself is ignored.
 
 ## 4. Event loop
 
