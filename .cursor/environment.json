@@ -1,0 +1,17 @@
+{
+  "name": "hsmpace",
+  "install": "pip install -e \".[dev,png]\"",
+  "terminals": [
+    {
+      "name": "hsmpace-app",
+      "command": "python3 -m streamlit run src/hsmpace/app/streamlit_app.py --server.address 0.0.0.0 --server.port 8731 --server.headless true --browser.gatherUsageStats false",
+      "description": "hsmpace Streamlit web UI, reachable on http://localhost:8731"
+    }
+  ],
+  "ports": [
+    {
+      "name": "hsmpace web UI",
+      "port": 8731
+    }
+  ]
+}
