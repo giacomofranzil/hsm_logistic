@@ -37,21 +37,26 @@ chain, so that the tail meets ``coiler_v_final`` at the mandrel.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 
-from .kinematics import EPS_T, Segment, Trajectory, _quad_roots, overlap_intervals, solve_crossing
+from .coilbox import commanded_speed as coilbox_commanded_speed
+from .coiler import (
+    braking_distance,
+    coiler_tail_waypoint,
+    reversal_tailout_speed,
+    tail_arrival_speed,
+)
+from .kinematics import EPS_T, Segment, Trajectory, _quad_roots, solve_crossing
 from .model import (
     FWD,
-    KIND_STAND,
     Case,
     Equipment,
-    Line,
     ModelError,
     Product,
     RollingPass,
     SpeedEvent,
 )
+from .occupancy import Occupancy, finalise_occupancy, stamp_piece
 
 _MAX_ITER = 200_000
 _HORIZON = 2_000.0
@@ -66,18 +71,6 @@ class SimEvent:
     equipment_id: str = ""
     x: float = 0.0
     detail: str = ""
-
-
-@dataclass(frozen=True)
-class Occupancy:
-    equipment_id: str
-    pass_no: int
-    t_in: float
-    t_out: float
-
-    @property
-    def duration(self) -> float:
-        return self.t_out - self.t_in
 
 
 @dataclass
@@ -122,84 +115,6 @@ class PieceResult:
         return self.head.x_at(t) - self.tail.x_at(t)
 
 
-def braking_distance(v_from: float, v_to: float, accel: float) -> float:
-    """Distance needed to go from one speed to another at a given acceleration."""
-    if accel <= 0.0:
-        return 0.0
-    return abs(v_from * v_from - v_to * v_to) / (2.0 * accel)
-
-
-def reversal_tailout_speed(clearance: float, table_accel: float) -> float | None:
-    """Lead speed at tail-out that lets the table stop exactly at ``clearance``.
-
-    ``None`` means the cell is empty: stop as soon as possible after tail-out,
-    with no mill slowdown.
-    """
-    if clearance <= 1e-9 or table_accel <= 0.0:
-        return None
-    return math.sqrt(2.0 * table_accel * clearance)
-
-
-def _stands_ahead_of_tail(
-    x_tail: float,
-    engaged: list[tuple[RollingPass, float, float]],
-) -> list[tuple[float, float]]:
-    """Remaining stands the tail still has to clear, upstream to downstream."""
-    stands = [(x, rp.elongation) for rp, x, _ in engaged if x > x_tail + _X_EPS]
-    stands.sort(key=lambda item: item[0])
-    return stands
-
-
-def coiler_tail_waypoint(
-    x_tail: float,
-    x_coiler: float,
-    v_final: float,
-    accel: float,
-    engaged: list[tuple[RollingPass, float, float]],
-) -> tuple[float, float]:
-    """Next tail target so that, after the remaining tail-outs, it meets ``v_final``.
-
-    Walks backward from the mandrel. At each stand the tail speeds up by that
-    pass's lambda, so the speed required just before tail-out is the speed
-    required just after it, divided by lambda. Between stands the tail is held
-    at deceleration ``accel``. With no stand left the waypoint is the coiler
-    itself at ``v_final``.
-    """
-    x_wp = x_coiler
-    v_wp = max(v_final, 0.0)
-    for x_stand, lam_i in reversed(_stands_ahead_of_tail(x_tail, engaged)):
-        gap = max(x_wp - x_stand, 0.0)
-        v_after = (v_wp * v_wp + 2.0 * accel * gap) ** 0.5 if accel > 0.0 else v_wp
-        v_wp = v_after / lam_i if lam_i > 0.0 else v_after
-        x_wp = x_stand
-    return x_wp, v_wp
-
-
-def tail_arrival_speed(
-    x_tail: float,
-    v_tail: float,
-    x_coiler: float,
-    accel: float,
-    engaged: list[tuple[RollingPass, float, float]],
-) -> float:
-    """Speed the tail would have at the coiler if it decelerated at ``accel`` now.
-
-    Includes the jump at every remaining tail-out: the tail speeds up by the
-    pass lambda when that stand releases it, then keeps decelerating.
-    """
-    x = x_tail
-    v = max(v_tail, 0.0)
-    for x_stand, lam_i in _stands_ahead_of_tail(x_tail, engaged):
-        gap = max(x_stand - x, 0.0)
-        v2 = v * v - 2.0 * accel * gap
-        v = v2 ** 0.5 if v2 > 0.0 else 0.0
-        v *= lam_i
-        x = x_stand
-    gap = max(x_coiler - x, 0.0)
-    v2 = v * v - 2.0 * accel * gap
-    return v2 ** 0.5 if v2 > 0.0 else 0.0
-
-
 def _ramp_start_time(
     gap0: float,
     v_now: float,
@@ -229,43 +144,6 @@ def _ramp_start_time(
         return 0.0
     roots = [r for r in _quad_roots(c0, c1, c2, 0.0, horizon) if r >= 0.0]
     return roots[0] if roots else None
-
-
-def finalise_occupancy(
-    line: Line,
-    head: Trajectory,
-    tail: Trajectory,
-    stand_occ: list[Occupancy],
-) -> tuple[Occupancy, ...]:
-    """Stand visits plus footprint overlap of every device marked occupy."""
-    out: list[Occupancy] = []
-    for o in stand_occ:
-        eq = line.get(o.equipment_id)
-        if not eq.occupies:
-            continue
-        spans = overlap_intervals(head, tail, eq.occupy_lo, eq.occupy_hi)
-        chosen: tuple[float, float] | None = None
-        for a, b in spans:
-            if a <= o.t_in + 1e-4 and b >= o.t_out - 1e-4:
-                chosen = (a, b)
-                break
-        if chosen is None:
-            overlapping = [
-                (a, b) for a, b in spans if a < o.t_out - 1e-9 and b > o.t_in + 1e-9
-            ]
-            if overlapping:
-                chosen = overlapping[0]
-        if chosen is not None:
-            out.append(Occupancy(o.equipment_id, o.pass_no, chosen[0], chosen[1]))
-        else:
-            out.append(o)
-    for eq in line.equipment:
-        if not eq.occupies or eq.kind == KIND_STAND:
-            continue
-        spans = overlap_intervals(head, tail, eq.occupy_lo, eq.occupy_hi)
-        for i, (a, b) in enumerate(spans, start=1):
-            out.append(Occupancy(eq.id, i, a, b))
-    return tuple(sorted(out, key=lambda item: (item.t_in, item.equipment_id, item.pass_no)))
 
 
 def simulate_piece(
@@ -382,23 +260,6 @@ def simulate_piece(
             )
         )
 
-    def coilbox_command_speed() -> float:
-        """Speed the box would like, once it is allowed to command.
-
-        Empty (0) fields keep the speed already in force: the caller ignores a
-        non-positive return value.
-        """
-        entered = x_virt - (x_cb or 0.0)
-        threading = (
-            product.coilbox_thread_length > 1e-9
-            and entered < product.coilbox_thread_length - 1e-9
-        )
-        if threading:
-            return product.coilbox_v_thread
-        if product.coilbox_v_coil > 1e-9:
-            return product.coilbox_v_coil
-        return product.coilbox_v_thread
-
     while not done:
         iterations += 1
         if iterations > _MAX_ITER:
@@ -506,7 +367,7 @@ def simulate_piece(
             and not reversing
             and not coiler_braking
         ):
-            wanted = coilbox_command_speed()
+            wanted = coilbox_commanded_speed(product, x_virt, x_cb or 0.0)
             if engaged:
                 if wanted > 1e-9 and abs(v_lead - wanted) > 0.05 and not cb_overlap_warned:
                     warnings.append(
@@ -1110,7 +971,9 @@ def simulate_piece(
         tail=tail_phys,
         head_virtual=head_virtual,
         events=tuple(events),
-        occupancy=finalise_occupancy(line, head_phys, tail_phys, occupancy),
+        occupancy=stamp_piece(
+            finalise_occupancy(line, head_phys, tail_phys, occupancy), piece_id
+        ),
         length_kinematic=length_kin,
         length_geometric=length_geo,
         x_coiler=x_coiler,
@@ -1205,7 +1068,13 @@ def shift_result(result: PieceResult, dt: float, piece_id: str | None = None) ->
             SimEvent(e.t + dt, e.kind, e.equipment_id, e.x, e.detail) for e in result.events
         ),
         occupancy=tuple(
-            Occupancy(o.equipment_id, o.pass_no, o.t_in + dt, o.t_out + dt)
+            Occupancy(
+                o.equipment_id,
+                o.pass_no,
+                o.t_in + dt,
+                o.t_out + dt,
+                piece_id=piece_id or result.piece_id,
+            )
             for o in result.occupancy
         ),
         length_kinematic=result.length_kinematic,

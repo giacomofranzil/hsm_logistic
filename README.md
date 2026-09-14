@@ -1,6 +1,8 @@
 # hsmpace
 
-Space-time diagram and pacing analysis for a **Hot Strip Mill**.
+Space-time diagram and pacing analysis for a **Hot Strip Mill**. This repository is **TRoll Evolves**:
+the `hsmpace` package is the first mill type of a shared physics core (offline tool and future Level 2
+engine). Other mill types plug in later; the calculation core stays free of Excel, Plotly and Streamlit.
 
 The tool draws the head and tail position of the pieces travelling along the line, checks that a
 sufficient gap always remains between the tail of one piece and the head of the next, and determines
@@ -201,12 +203,17 @@ src/hsmpace/
   core/        calculation core in pure arithmetic, no external dependency
     kinematics.py   analytic segments, quadratic roots, difference of trajectories
     model.py        layout, sections, events, pass schedule, validation
+    occupancy.py    busy intervals from [tail, head] vs station footprints
+    coilbox.py      commanded speeds of the box (state stays in the event loop)
+    coiler.py       tail waypoints for coiler slowdown and reversing stop
     simulate.py     event-driven simulator
     analysis.py     gap, geometric extremities, mass balance
     studies.py      gap versus pacing curve, minimum pacing, Monte Carlo
     contract.py     JSON contract for input and output
     tracking.py     import of measured tracking
-  io_excel/    Excel reading and writing (openpyxl)
+  plants/      mill-type adapters (HSM today)
+  io/          Excel and TRoll XML adapters (not imported by core)
+  io_excel/    compatibility shim → io.excel
   viz/         charts (plotly)
   app/         web interface (streamlit)
   cli.py       command line

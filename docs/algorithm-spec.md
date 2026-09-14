@@ -6,6 +6,10 @@ uses standard arithmetic only: no numerical library, no global state, no depende
 
 Units: metres, seconds, m/s and m/s2 for motion; millimetres for thicknesses and widths.
 
+The JSON contract (`contract_version` `"1"`) carries `mill_type`. When the field is absent the
+value is `hsm`. This specification describes the Hot Strip Mill adapter; other mill types add
+layout kinds and validation without changing the head/tail kinematics.
+
 ## 1. Representation of motion
 
 Each extremity of a piece is described by a contiguous sequence of uniformly accelerated segments:

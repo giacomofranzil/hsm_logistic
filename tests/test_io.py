@@ -25,6 +25,7 @@ def test_excel_round_trip_preserves_the_case(tmp_path):
     assert loaded.line.sections == original.line.sections
     assert loaded.products == original.products
     assert loaded.settings == original.settings
+    assert loaded.mill_type == original.mill_type == "hsm"
 
 
 def test_the_empty_template_has_the_sheets_and_headers(tmp_path):
@@ -59,6 +60,9 @@ def test_json_round_trip_preserves_the_case():
     assert loaded.line.equipment == original.line.equipment
     assert loaded.products == original.products
     assert loaded.settings == original.settings
+    assert loaded.mill_type == "hsm"
+    assert payload["mill_type"] == "hsm"
+    assert payload["contract_version"] == "1"
 
 
 def test_parsing_errors_point_at_sheet_and_cell(tmp_path):
@@ -275,3 +279,35 @@ def test_tracking_without_the_tail_column():
 def test_tracking_with_missing_columns():
     with pytest.raises(ValueError, match="missing columns"):
         parse_tracking(["piece,time", "A1,0"])
+
+
+def test_json_without_mill_type_defaults_to_hsm():
+    payload = case_to_dict(example_case())
+    del payload["mill_type"]
+    payload.get("info", {}).pop("mill_type", None)
+    loaded = case_from_dict(payload)
+    assert loaded.mill_type == "hsm"
+
+
+def test_unknown_mill_type_is_rejected():
+    from dataclasses import replace
+
+    from hsmpace.core.model import validate_case
+
+    case = replace(example_case(), mill_type="plate")
+    messages = [p.message for p in validate_case(case)]
+    assert any("mill_type" in m and "plate" in m for m in messages)
+
+
+def test_troll_xml_import_is_a_documented_boundary():
+    from hsmpace.io.troll_xml import case_from_troll
+
+    with pytest.raises(NotImplementedError, match="TRoll XML"):
+        case_from_troll("dump.xml")
+
+
+def test_io_excel_shim_still_imports():
+    from hsmpace.io.excel import read_case as read_new
+    from hsmpace.io_excel import read_case as read_shim
+
+    assert read_new is read_shim

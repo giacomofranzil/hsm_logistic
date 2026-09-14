@@ -13,9 +13,11 @@ from typing import Any
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
-from ..core.model import (
+from ...core.model import (
     FWD,
     REV,
+    MILL_HSM,
+    EQUIPMENT_KINDS,
     Case,
     Equipment,
     Line,
@@ -203,6 +205,7 @@ def read_case(path: str | Path) -> Case:
 
     info_raw = _key_values(wb[S.SHEET_INFO])
     info = {k: ("" if v is None else str(v)) for k, (v, _) in info_raw.items()}
+    mill_type = (info.get("mill_type") or MILL_HSM).strip() or MILL_HSM
     version = info.get("schema_version", "").strip()
     if version and version != S.SCHEMA_VERSION:
         issues.add(
@@ -225,6 +228,7 @@ def read_case(path: str | Path) -> Case:
         line=Line(tuple(equipment), tuple(sections)),
         products=tuple(products),
         settings=settings,
+        mill_type=mill_type,
         info=info,
     )
 
@@ -251,11 +255,11 @@ def _read_layout(
             table.name,
             table.ref(row, "equipment_id"),
         )
-        if kind not in ("start", "stand", "coiler", "coilbox", "marker"):
+        if kind not in EQUIPMENT_KINDS:
             issues.add(
                 table.name,
                 table.ref(row, "kind"),
-                f"kind {kind!r} is not valid: use start, stand, coiler, coilbox or marker",
+                f"kind {kind!r} is not valid: use {', '.join(EQUIPMENT_KINDS)}",
             )
         occupy_raw = table.raw(row, "occupy")
         occupy: bool | None

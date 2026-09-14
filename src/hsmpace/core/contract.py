@@ -13,6 +13,7 @@ from .analysis import GapAnalysis
 from .model import (
     FWD,
     REV,
+    MILL_HSM,
     Case,
     Equipment,
     Line,
@@ -49,6 +50,7 @@ def _optional_flag(value: Any) -> bool | None:
 def case_to_dict(case: Case) -> dict:
     return {
         "contract_version": CONTRACT_VERSION,
+        "mill_type": case.mill_type,
         "info": dict(case.info),
         "layout": [
             {
@@ -254,6 +256,7 @@ def case_from_dict(data: dict) -> Case:
         line=Line(equipment, tuple(sections)),
         products=tuple(products),
         settings=settings,
+        mill_type=str(data.get("mill_type") or data.get("info", {}).get("mill_type") or MILL_HSM),
         info=dict(data.get("info", {})),
     )
 
@@ -293,6 +296,7 @@ def result_to_dict(result: PieceResult) -> dict:
                 "pass_no": o.pass_no,
                 "t_in_s": o.t_in,
                 "t_out_s": o.t_out,
+                "piece_id": o.piece_id,
             }
             for o in result.occupancy
         ],

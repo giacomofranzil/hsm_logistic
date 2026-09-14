@@ -1,8 +1,12 @@
-"""Reading and writing of the Excel input and output files."""
+"""Compatibility shim: Excel I/O now lives in ``hsmpace.io.excel``."""
 
-from .reader import ValidationError, ValidationIssue, read_case
-from .results import write_results
-from .writer import write_case
+from hsmpace.io.excel import (
+    ValidationError,
+    ValidationIssue,
+    read_case,
+    write_case,
+    write_results,
+)
 
 __all__ = [
     "ValidationError",

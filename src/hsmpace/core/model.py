@@ -19,9 +19,35 @@ KIND_STAND = "stand"
 KIND_COILER = "coiler"
 KIND_COILBOX = "coilbox"
 KIND_MARKER = "marker"
-EQUIPMENT_KINDS = (KIND_START, KIND_STAND, KIND_COILER, KIND_COILBOX, KIND_MARKER)
+
+MILL_HSM = "hsm"
+MILL_TYPES = (MILL_HSM,)
+
+
+@dataclass(frozen=True)
+class KindSpec:
+    """How a layout ``kind`` is interpreted. New mill types add entries here."""
+
+    name: str
+    occupy_default: bool = False
+    reads_layout_accel: bool = False
+
+
+KIND_SPECS: dict[str, KindSpec] = {
+    KIND_START: KindSpec(KIND_START, occupy_default=False, reads_layout_accel=False),
+    KIND_STAND: KindSpec(KIND_STAND, occupy_default=True, reads_layout_accel=True),
+    KIND_COILER: KindSpec(KIND_COILER, occupy_default=True, reads_layout_accel=True),
+    KIND_COILBOX: KindSpec(KIND_COILBOX, occupy_default=True, reads_layout_accel=True),
+    KIND_MARKER: KindSpec(KIND_MARKER, occupy_default=False, reads_layout_accel=False),
+}
+EQUIPMENT_KINDS = tuple(KIND_SPECS)
 
 MAX_COILERS = 3
+
+
+def kind_reads_layout_accel(kind: str) -> bool:
+    spec = KIND_SPECS.get(kind)
+    return bool(spec and spec.reads_layout_accel)
 
 
 class ModelError(ValueError):
@@ -51,7 +77,8 @@ class Equipment:
     def occupies(self) -> bool:
         if self.occupy is not None:
             return self.occupy
-        return self.kind in (KIND_STAND, KIND_COILER, KIND_COILBOX)
+        spec = KIND_SPECS.get(self.kind)
+        return bool(spec and spec.occupy_default)
 
     @property
     def occupy_lo(self) -> float:
@@ -278,6 +305,7 @@ class Case:
     line: Line
     products: tuple[Product, ...]
     settings: SimSettings = field(default_factory=SimSettings)
+    mill_type: str = MILL_HSM
     info: dict[str, str] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
     """Non blocking remarks collected while reading the input."""
@@ -429,13 +457,6 @@ def validate_case(case: Case) -> list[Problem]:
                 f"{e.id}: occupancy footprint before/after the axis cannot be negative",
             )
 
-    boxes = [e for e in line.equipment if e.kind == KIND_COILBOX]
-    if len(boxes) > 1:
-        add(
-            f"equipment:{boxes[1].id}",
-            "at most one coilbox is allowed in the layout",
-        )
-
     for s in line.sections:
         if s.length <= 0.0:
             add(f"section:{s.id}", f"section {s.id}: length must be positive")
@@ -471,12 +492,6 @@ def validate_case(case: Case) -> list[Problem]:
                 f"pass:{product.id}:{product.passes[0].pass_no}",
                 f"product {product.id}: the first pass must be in direction 'fwd', "
                 "the piece leaves the furnace moving forward",
-            )
-        if product.passes[-1].direction != FWD:
-            add(
-                f"pass:{product.id}:{product.passes[-1].pass_no}",
-                f"product {product.id}: the last pass must be in direction 'fwd', "
-                "otherwise the piece keeps moving backwards and never reaches the coiler",
             )
 
         h_prev = product.slab_thk
@@ -537,44 +552,6 @@ def validate_case(case: Case) -> list[Problem]:
             h_prev, w_prev = rp.h_out, rp.w_out
             prev = rp
 
-        coilbox_filled = bool(
-            product.coilbox_v_thread
-            or product.coilbox_v_coil
-            or product.coilbox_v_uncoil
-            or product.coilbox_thread_length
-            or product.coilbox_delay
-        )
-        if boxes and product.uses_coilbox(line):
-            if product.coilbox_thread_length < 0:
-                add(tag, f"product {product.id}: coilbox_thread_length_m cannot be negative")
-            if product.coilbox_delay < 0:
-                add(tag, f"product {product.id}: coilbox_delay_s cannot be negative")
-            for name, value in (
-                ("coilbox_v_thread_mps", product.coilbox_v_thread),
-                ("coilbox_v_coil_mps", product.coilbox_v_coil),
-                ("coilbox_v_uncoil_mps", product.coilbox_v_uncoil),
-            ):
-                if value < 0:
-                    add(tag, f"product {product.id}: {name} cannot be negative")
-        elif boxes and product.use_coilbox is False and coilbox_filled:
-            warn(
-                tag,
-                f"product {product.id}: coilbox speeds are filled but coilbox is NO "
-                "(bypass); they are ignored",
-            )
-        elif not boxes and product.use_coilbox is True:
-            warn(
-                tag,
-                f"product {product.id}: coilbox is YES but there is no coilbox in the "
-                "layout; the tick is ignored",
-            )
-        elif not boxes and coilbox_filled:
-            warn(
-                tag,
-                f"product {product.id}: coilbox speeds are filled but there is no "
-                "coilbox in the layout; they are ignored",
-            )
-
     for pid in case.piece_products:
         if all(p.id != pid for p in case.products):
             add("setting:piece_products", f"piece sequence: unknown product {pid!r}")
@@ -590,50 +567,7 @@ def validate_case(case: Case) -> list[Problem]:
     if case.settings.coiler_v_final < 0:
         add("setting:coiler_v_final_mps", "the final speed at the coiler cannot be negative")
 
-    coilers = line.coilers
-    if len(coilers) > MAX_COILERS:
-        add(
-            f"equipment:{coilers[MAX_COILERS].id}",
-            f"at most {MAX_COILERS} coilers are allowed in the layout",
-        )
-    pattern = case.settings.coiler_pattern
-    coiler_ids = {e.id for e in coilers}
-    for cid in pattern:
-        if cid not in coiler_ids:
-            add(
-                "setting:coiler_pattern",
-                f"coiler_pattern: {cid!r} is not a coiler in the layout",
-            )
-    if len(coilers) >= 2:
-        if not pattern:
-            add(
-                "setting:coiler_pattern",
-                "with two or more coilers, coiler_pattern is required "
-                "(comma separated ids, for example DC1,DC2). If only one coiler is used, "
-                "remove the others from the layout",
-            )
-        else:
-            used = set(pattern)
-            if len(used) < 2:
-                add(
-                    "setting:coiler_pattern",
-                    "with two or more coilers, coiler_pattern must name at least two "
-                    "distinct coilers. If every piece goes to one mandrel, remove the "
-                    "unused coilers from the layout",
-                )
-            for unused in sorted(coiler_ids - used):
-                warn(
-                    f"equipment:{unused}",
-                    f"{unused} is in the layout but not in coiler_pattern; remove it "
-                    "from the layout if it is not used",
-                )
-    elif pattern and coilers:
-        only = coilers[0].id
-        for cid in pattern:
-            if cid != only:
-                add(
-                    "setting:coiler_pattern",
-                    f"coiler_pattern names {cid!r} but the only coiler is {only}",
-                )
+    from ..plants import validate_plant
 
+    problems.extend(validate_plant(case))
     return problems

@@ -186,6 +186,7 @@ def example_case() -> Case:
         settings=settings,
         info={
             "schema_version": "1",
+            "mill_type": "hsm",
             "mill_name": "Example HSM",
             "notes": "Invented data, for demonstration only",
         },

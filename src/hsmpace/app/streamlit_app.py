@@ -25,7 +25,7 @@ from hsmpace.core.studies import (
 )
 from hsmpace.core.tracking import parse_tracking
 from hsmpace.example import example_case
-from hsmpace.io_excel import ValidationError, read_case, write_case, write_results
+from hsmpace.io.excel import ValidationError, read_case, write_case, write_results
 from hsmpace.viz import (
     TRACE_POINT_CHOICES,
     gantt_figure,
