@@ -10,7 +10,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
-from ..core.model import FWD, Case, Section
+from ...core.model import FWD, Case, Section, kind_reads_layout_accel
 from . import schema as S
 
 _HEADER_FILL = PatternFill("solid", fgColor="1F3864")
@@ -74,10 +74,16 @@ def write_case(case: Case, path: str | Path, include_data: bool = True) -> Path:
 
     ws = wb.create_sheet(S.SHEET_INFO)
     _write_header(ws, [("key", "Key"), ("value", "Value")])
-    info = {"schema_version": S.SCHEMA_VERSION, "mill_name": "", "notes": ""}
+    info = {
+        "schema_version": S.SCHEMA_VERSION,
+        "mill_type": case.mill_type,
+        "mill_name": "",
+        "notes": "",
+    }
     if include_data:
         info.update(case.info)
     info["schema_version"] = S.SCHEMA_VERSION
+    info["mill_type"] = case.mill_type
     for row, (key, value) in enumerate(info.items(), start=2):
         ws.cell(row=row, column=1, value=key)
         ws.cell(row=row, column=2, value=value)
@@ -86,8 +92,7 @@ def write_case(case: Case, path: str | Path, include_data: bool = True) -> Path:
     _write_header(ws, S.LAYOUT_COLUMNS)
     if include_data:
         for row, eq in enumerate(case.line.equipment, start=2):
-            # acceleration is only read on stand and coiler rows
-            accel = eq.accel if eq.kind in ("stand", "coiler", "coilbox") else None
+            accel = eq.accel if kind_reads_layout_accel(eq.kind) else None
             occupy = None if eq.occupy is None else _bool(eq.occupy)
             for col, value in enumerate(
                 [
@@ -207,6 +212,16 @@ def write_case(case: Case, path: str | Path, include_data: bool = True) -> Path:
         ws.cell(row=row, column=2, value=values[key] if include_data else default)
         cell = ws.cell(row=row, column=3, value=note)
         cell.alignment = Alignment(wrap_text=True)
+
+    ws = wb.create_sheet(S.SHEET_UTILITIES)
+    _write_header(ws, S.UTILITY_COLUMNS)
+    if include_data:
+        for row, recipe in enumerate(case.utilities, start=2):
+            for col, value in enumerate(
+                [recipe.equipment_id, recipe.utility, recipe.rate, recipe.when],
+                start=1,
+            ):
+                ws.cell(row=row, column=col, value=value)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)

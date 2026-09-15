@@ -6,6 +6,10 @@ uses standard arithmetic only: no numerical library, no global state, no depende
 
 Units: metres, seconds, m/s and m/s2 for motion; millimetres for thicknesses and widths.
 
+The JSON contract (`contract_version` `"1"`) carries `mill_type`. When the field is absent the
+value is `hsm`. This specification describes the Hot Strip Mill adapter; other mill types add
+layout kinds and validation without changing the head/tail kinematics.
+
 ## 1. Representation of motion
 
 Each extremity of a piece is described by a contiguous sequence of uniformly accelerated segments:
@@ -312,6 +316,10 @@ acceleration of its stand.
   `[x - occupy_before, x + occupy_after]`. Default occupy is yes for stand, coiler and coilbox, no
   for marker and start. Empty footprints on a stand reduce to bite → tail-out. A reversing bar can
   occupy the same device twice.
+* **utilities**: after occupancy, each recipe (`equipment_id`, `water` or `power`, rate, `occupy` or
+  `rolling`) is applied to matching busy spans. Instantaneous rate is piecewise constant; overlapping
+  pieces add. Water rate is L/s (integral in m3); power rate is kW (integral in kWh). `rolling` is
+  valid on stands only. This is not part of the event loop.
 * **intermediate material points**: not part of the event loop. After the run, `n` traces
   (`n ∈ {2, 3, 5, …, 21}`, default 2) are reconstructed as geometric fractions of the current
   length between tail and head.

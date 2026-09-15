@@ -17,7 +17,7 @@ from .core.contract import case_from_dict, case_to_dict, report_to_dict
 from .core.model import harmonise_tandem_speeds
 from .core.studies import base_results, gap_vs_pacing, min_feasible_pacing, monte_carlo, sequence
 from .example import example_case
-from .io_excel import ValidationError, read_case, write_case, write_results
+from .io.excel import ValidationError, read_case, write_case, write_results
 
 DEFAULT_PORT = 8731
 

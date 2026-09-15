@@ -806,6 +806,8 @@ def test_empty_coilbox_tick_still_uses_the_box():
     assert case.products[0].uses_coilbox(case.line)
     res = simulate_piece(case, case.products[0])
     assert any(e.kind == "coilbox_in" for e in res.events)
+    assert res.occupancy
+    assert all(o.piece_id == res.piece_id for o in res.occupancy)
 
 
 def test_mass_balance_holds_when_f1_bites_during_coilbox_payout():
